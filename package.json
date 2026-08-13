@@ -1,0 +1,28 @@
+{
+  "name": "portafolio-freelance-cli",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@clack/prompts": "^1.7.0",
+    "boxen": "^8.0.1",
+    "chalk": "^6.0.0",
+    "cli-progress": "^3.12.0",
+    "cli-table3": "^0.6.5",
+    "dayjs": "^1.11.21",
+    "figlet": "^1.11.4",
+    "figures": "^6.1.0",
+    "gradient-string": "^3.0.0",
+    "log-symbols": "^7.0.1",
+    "mongodb": "^7.5.0",
+    "ora": "^9.4.1",
+    "validator": "^13.15.35"
+  }
+}
