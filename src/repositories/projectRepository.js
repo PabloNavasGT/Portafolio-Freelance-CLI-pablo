@@ -1,86 +1,72 @@
 const mongodb = require('mongodb')
 const ObjectId = mongodb.ObjectId
 
-class proposalRepository {
-  constructor(db, client) {
-    this.db = db
-    this.client = client
-  }
-//guardar nuevas propuestas
-  async create(proposalData) {
-    var coleccion = this.db.collection('proposalRepository')
+class projectRepository {
+  constructor(db) {
+    this.db = db  };
 
-    let propuestaGuardar = {
-      description: proposalData.description,
-      precio: proposalData.precio,
-      plazos: proposalData.plazos,
+  // Crear proyecto desde propuesta
+  async createFromProposal(proposalData) {
+    var col = this.db.collection('proposalRepository');
+
+    let proyectoNuevo = {
       clientId: new ObjectId(proposalData.clientId),
-      estado: 'pendiente',
-      fechaCreacion: new Date()
+      proposalId: new ObjectId(proposalData._id),
+      nombre: 'Proyecto' + proposalData.description,
+      estado: 'activo',
+      porcentajeAvance: 0,
+      historialAvances: [],
+      fechaInicio: new Date()
     }
 
-    console.log("Guardando propuesta...")
-    let reultado = await coleccion.insertOne(propuestaGuardar)
+    console.log("Guardando proyecto nuevo...")
+    let reultado = await col.insertOne(proyectoNuevo)
     return reultado
   }
-//traer proyectos
-  async findByClientId(clientId) {
-    var coleccion = this.db.collection('proposalRepository')
-    let idBuscado = new ObjectId(clientId)
 
-    let lista = await coleccion.find({ clientId: _id }).toArray()
-    console.log("Propuestas encontradas:", lista.length)
-    return lista
-  }
-//Cambia el estado a "aceptada" y dispara la creación automática del proyecto
-  async acceptProposal(proposalId) {
-    let sesion = this.client.startSession()
+  // Actualizar avance del proyecto
+  async updateProgress(projectId, percentage, logNote) {
+    var col = this.db.collection('proposalRepository')
+    let id = new ObjectId(projectId)
 
-    try {
-      sesion.startTransaction()
-
-      let colPropuestas = this.db.collection('proposalRepository')
-      let id = new ObjectId(proposalId)
-
-      let propuesta = await colPropuestas.findOne({ _id: id }, { session: sesion })
-
-      if (propuesta == null) {
-        console.log("No existe esa propuesta")
-        return false
-      }
-      if (propuesta.estado == 'aceptada') {
-        console.log("La propuesta ya esta aceptada")
-        return "ya aceptada"
-      }
-
-      await colPropuestas.updateOne(
-        { _id: id },
-        { $set: { estado: 'aceptada' } },
-        { session: sesion }
-      )
-
-      let colProyectos = this.db.collection('proposalRepository')
-
-      let proyectoNuevo = {
-        nombre: 'Proyecto de propuesta' + propuesta._id,
-        clientId: propuesta.clientId,
-        proposalId: propuesta._id,
-        estado: 'activo',
-        fechaInicio: new Date()
-      }
-
-      let resProy = await colProyectos.insertOne(proyectoNuevo, { session: sesion })
-
-      await sesion.commitTransaction()
-      sesion.endSession()
-
-      return true
-    } catch (error) {
-      await sesion.abortTransaction()
-      sesion.endSession()
-      console.log("Ocurrio un error en la transaccion:", error)
+    if (percentage < 0 || percentage > 100) {
+      console.log("El porcentaje no es valido")
       return false
     }
-  }}
 
-module.exports = proposalRepository
+    let nuevoRegistro = {
+      porcentaje: percentage,
+      nota: logNote,
+      fecha: new Date()
+    }
+
+    let reultado = await col.updateOne(
+      { _id: id },
+      {
+        $set: { porcentajeAvance: percentage },
+        $push: { historialAvances: nuevoRegistro }
+      }
+    )
+    return reultado
+  };
+
+  // Cambiar estado del proyecto
+  async updateStatus(projectId, status) {
+    var col = this.db.collection('proposalRepository')
+    let id = new ObjectId(projectId)
+
+    let estadosValidos = ['activo', 'pausado', 'finalizado', 'cancelado']
+
+    if (!estadosValidos.includes(status)) {
+      console.log("Estado no permitido")
+      return false
+    }
+
+    let reultado = await col.updateOne(
+      { _id: id },
+      { $set: { estado: status } }
+    )
+
+    return reultado
+  }
+}
