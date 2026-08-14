@@ -41,7 +41,7 @@ class ClientRepository {
              const database = db.getDB();
             let resultado = database.collection("clients").find()
         }catch (error) {
-            console.log("error al renovar", error)
+            console.log("error al encontrar", error)
         }
     };
 //eliminar cliente 
