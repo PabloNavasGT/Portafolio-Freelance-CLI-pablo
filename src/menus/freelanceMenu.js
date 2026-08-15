@@ -144,4 +144,34 @@ export class FreelanceMenu {
         return isCancel(selectedId) ? null : selectedId;
     }
 
-    
+// Menu principal del modo Freelancer
+
+async MainMenu() {
+    while(true) {
+        // Ruta de navegacion (breadcrumbs)
+        UI.displayHeader('> Modo Freelanccer > Menu Principal');
+
+        const option = await select({
+            message: 'Seleccione una opcion de gestion:',
+            options: [
+                { value: 'clientes', label: 'Gestion de Clientes' },
+                { value: 'proposal', label: 'Gestion de Propuestas' },
+                { value: 'projects', label: 'Gestion de Proyectos'},
+                { value: 'deliverables', label: 'Gestion de Entregables' },
+                { value: 'finances', label: 'Gestion Financiera' },
+                { value: 'exit', label: 'Salir al Menu Principal' }
+            ]
+        });
+
+        if (isCancel(option) || option === 'exit') break;
+
+        switch (option) {
+            case 'clients': await this.clientsSubMenu(); break;
+            case 'proposals': await this.proposalsSubmenu(); break;
+            case 'projects': await this.projectsSubMenu(); break;
+            case 'deliverables': await this.deliverablesSubMenu(); break;
+            case 'finances': await this.financesSubMenu(); break;
+        }
+    }
+}
+
