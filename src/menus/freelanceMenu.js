@@ -67,3 +67,20 @@ export class FreelanceMenu {
         return `[${filledBar}${emptyBar}] ${chalk.bold(validPercent)}%`;
     }
 }
+
+    // Imprime cajas estilizadas con boxen cuando una coleccion no contiene registros.
+
+    renderEmptyStateBox(entityName, actionTip) {
+        const message = `${UI.symbols.warning} ${chalk.yellow('No existen ' + entityName + ' registrados actualmente.')}\n${chalk.gray(actionTip)}`;
+        console.log(
+            boxen(message, {
+                padding: 1,
+                margin: { top:1, bottom: 1 },
+                borderStyle: 'round',
+                borderColor: 'yellow',
+                align: 'center'
+            })
+        );
+    }
+
+    
