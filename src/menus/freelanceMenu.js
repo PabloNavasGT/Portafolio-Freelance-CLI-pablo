@@ -75,12 +75,34 @@ export class FreelanceMenu {
         console.log(
             boxen(message, {
                 padding: 1,
-                margin: { top:1, bottom: 1 },
+                margin: { top: 1, bottom: 1 },
                 borderStyle: 'round',
                 borderColor: 'yellow',
                 align: 'center'
             })
         );
+    }
+
+    // Carga dinamica de docummentos y menu interactivo de seleccion (Select) para Clientes.
+
+    async selectClientInteractive() {
+        const clients = await this.clientsCollection.find().toArray();
+        if (!clients.length) {
+            this.renderEmptyStateBox('clientes', 'Registra un cliente antes de continuar.');
+            return null;
+        }
+
+        const choices = clients.map(c => ({
+            value: c._id.toString(),
+            lable: `${c.name || 'Sin nombre'} (${c.email || 'Sin email'})`
+        }));
+
+        const selectedId = await select({
+            message: 'Seleccione un cliente de la lista:',
+            options: choices
+        });
+
+        return isCancel(selectedId) ? null : selectedId;
     }
 
     
