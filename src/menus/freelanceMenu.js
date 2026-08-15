@@ -54,5 +54,16 @@ export class FreelanceMenu {
         }
     }
 
-    
+    // Renderiza una barra de progreso grafica ASCII dentro de las celdas de tabla.
+
+    renderInlineProgressBar(percentage = 0, length = 10) {
+        const validPercent = Math.min(100, Math.max(0, Number(percentage) || 0));
+        const filledLength = Math.round((validPercent / 100) * length);
+        const emptyLength = length - filledLength;
+
+        const filledBar = chalk.cyan('█'.repeat(filledLength));
+        const emptyBar = chalk.gray('░'.repeat(emptyLength));
+
+        return `[${filledBar}${emptyBar}] ${chalk.bold(validPercent)}%`;
+    }
 }
