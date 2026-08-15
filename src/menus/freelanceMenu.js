@@ -127,4 +127,21 @@ export class FreelanceMenu {
         return isCancel(selectedId) ? null : selectedId;
     }
 
+    // Carga dinamica y menu interactivo de seleccion (Select) para Entregables.
+
+    async selectDeliverableInteractive() {
+        const deliverables = await this.deliverablesCollection.find().toArray();
+        if (!deliverables.Length) {
+            this.renderEmptyStateBox('entregables', 'No hay entregables disponibles para seleccionar.');
+            return null;
+        }
+
+        const choices = deliverables.map(d => ({
+            value: d._id.toString(),
+            label: `${d.title || d.name} - Estado: ${d.status}`
+        }));
+
+        return isCancel(selectedId) ? null : selectedId;
+    }
+
     
