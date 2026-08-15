@@ -1,4 +1,5 @@
 class projectModel {
+    
   constructor(clientId, proposalId, name, status = 'activo', progress = 0) {
     this.clientId = clientId
     this.proposalId = proposalId
