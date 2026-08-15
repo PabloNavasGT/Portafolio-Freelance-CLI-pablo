@@ -105,4 +105,26 @@ export class FreelanceMenu {
         return isCancel(selectedId) ? null : selectedId;
     }
 
+    // Carga dinamica y menu interactivo de seleccion para proyectos.
+
+    async selectProyectInteractive() {
+        const projects = await this.projectsCollection.find().toArray();
+        if (!projects.length) {
+            this.renderEmptyStateBox('proyectos', 'Crea un proyecto primero desde la opcion correspondiente.');
+            return null;
+        }
+
+        const choices = projects.map(p => ({
+            value: p._id.toString(),
+            label: `${p.name} - ${this.getBadge('projects', p.status)}`
+        }));
+
+        const selectedId = await select({
+            message: 'Selecccione un Proyecto de la lista:',
+            options: choices
+        });
+
+        return isCancel(selectedId) ? null : selectedId;
+    }
+
     
