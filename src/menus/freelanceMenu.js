@@ -178,6 +178,7 @@ export class FreelanceMenu {
                     { value: 'proposals', label: 'Gestion de Propuestas' },
                     { value: 'projects', label: 'Gestion de Proyectos' },
                     { value: 'deliverables', label: 'Gestion de Entregables' },
+                    { value: 'contracts', label: 'Gestion de Contratos' },
                     { value: 'finances', label: 'Gestion Financiera' },
                     { value: 'exit', label: 'Salir al Menu Principal' }
                 ]
@@ -190,6 +191,7 @@ export class FreelanceMenu {
                 case 'proposals': await this.proposalsSubMenu(); break;
                 case 'projects': await this.projectsSubMenu(); break;
                 case 'deliverables': await this.deliverablesSubMenu(); break;
+                case 'contracts': await this.contractsSubMenu(); break
                 case 'finances': await this.financesSubMenu(); break;
             }
         }
@@ -197,347 +199,242 @@ export class FreelanceMenu {
 
     // SUBMÓDULO: GESTIÓN DE CLIENTES
 
-    async clientsSubMenu() {
-        while (true) {
-            UI.displayHeader('> Modo Freelancer > Gestion de Clientes');
+async contractsSubMenu() {
+    while (true) {
+        UI.displayHeader('> Modo Freelancer > Gestion de contratos');
 
-            const action = await select({
-                message: 'Operaciones de Clientes:',
-                options: [
-                    { value: 'list', label: 'Listar Clientes' },
-                    { value: 'create', label: 'Crear Nuevo Cliente' },
-                    { value: 'update', label: 'Actualizar Cliente' },
-                    { value: 'delete', label: 'Eliminar Cliente' },
-                    { value: 'back', label: 'Volver' }
-                ]
-            });
+        const action = await select({
+            message: 'Operaciones de Contratos:',
+            options: [
+                { value: 'list', label: 'Listar Contratos y Detalles' },
+                { value: 'create', label: 'Crear Nuevo contrato' },
+                { value: 'update', label: 'Actualizar Contrato / Estado' },
+                { value: 'delete', label: 'Eliminar Contrato' },
+                { value: 'back', label: 'Volver' }
+            ]
+        });
 
-            if (isCancel(action) || action === 'back') break;
+        if (isCancel(action) || action === 'back') break;
 
-            if (action === 'list') await this.listClients();
-            if (action === 'create') await this.createClient();
-            if (action === 'update') await this.updateClient();
-            if (action === 'delete') await this.deleteClient();
-        }
+        if (action === 'list') await this.listContracts();
+        if (action === 'create') await this.createContract();
+        if (action === 'update') await this.updateContract();
+        if (action === 'delete') await this.deleteContract();
     }
+}
 
-    async listClients() {
-        UI.displayHeader('> Modo Freelancer > Gestion de Clientes > Listar Clientes');
-        const clients = await this.clientsCollection.find().toArray();
+async selectContractInteractive() {
+    const contracts = await this.contractsCollection.find().toArray();
+    if (!contracts.length) return null;
 
-        if (!clients.length) {
-            this.renderEmptyStateBox('clientes', 'Utiliza la opción "Crear Nuevo Cliente" para comenzar.');
-        } else {
-            const headers = ['ID', 'Nombre', 'Email', 'Teléfono'];
-            const rows = clients.map(c => [
-                c._id.toString(),
-                c.name || 'N/A',
-                c.email || 'N/A',
-                c.phone || 'N/A'
-            ]);
-            UI.renderTable(headers, rows);
-        }
+    const choices = [
+        { value: 'none', label: 'Sin contrato vinculado' },
+        ...contracts.map(c => ({
+            value: c._id.toString(),
+            label: `[${c.code}] ${c.title || 'Sin titulo'}`
+        }))
+    ];
 
+    const selectedId = await select({
+        message: 'Seleccione un Contrato para vincular:',
+        options: choices
+    });
+
+    if (isCancel(selectedId) || selectedId === 'none') return null;
+    return selectedId;
+}
+
+async listContracts() {
+    UI.displayHeader('> Modo Freelancer > Gestion de contratos > Listar contratos');
+    const contracts = await this.contractsCollection.find().toArray();
+
+    if (!contracts.length) {
+        this.renderEmptyStateBox('contratos', 'No hay contratos registrados.');
         await text({ message: 'Presione ENTER para continuar...' });
+        return;
     }
 
-    async createClient() {
-        UI.displayHeader('> Modo Freelancer > Gestion de Clientes > Crear Nuevo Cliente');
+    const projects = await this.projectsCollection.find().toArray();
+    const projectMap = new Map(projects.map(p => [p._id.toString(), p.name]));
 
-        const name = await text({
-            message: 'Nombre del Cliente:',
-            validate: val => (!val || val.trim().length === 0) ? 'El nombre es requerido' : undefined
-        });
-        if (isCancel(name)) return;
+    const headers = ['ID', 'Título', 'Proyecto', 'Valor Total', 'Inicio', 'Fin', 'Estado'];
 
-        const email = await text({
-            message: 'Correo Electrónico:',
-            validate: val => (!val || !validator.isEmail(val)) ? 'Ingrese un email válido' : undefined
-        });
-        if (isCancel(email)) return;
+    const rows = contracts.map(c => {
+        const projectName = c.projectId ? (projectMap.get(c.projectId.toString()) || 'No encontrado') : 'Sin proyecto';
+        const formattedValue = c.totalValue ? `$${Number(c.totalValue).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '$0.00';
+        const startDate = c.startDate ? new Date(c.startDate).toLocaleDateString() : 'N/A';
+        const endDate = c.endDate ? new Date(c.endDate).toLocaleDateString() : 'N/A';
 
-        const phone = await text({ message: 'Teléfono (Opcional):' });
-        if (isCancel(phone)) return;
+        return [
+            c.code || 'C-000',
+            c.title || 'Sin titulo',
+            projectName,
+            formattedValue,
+            startDate,
+            endDate,
+            this.getBadge('contracts', c.status)
+        ];
+    });
 
-        const spinner = UI.createSpinner('Guardando cliente en base de datos...').start();
-        await this.clientsCollection.insertOne({
-            name: name.trim(),
-            email: email.trim(),
-            phone: phone?.trim() || 'N/A',
-            createdAt: new Date()
-        });
-        spinner.succeed(chalk.green(`${UI.symbols.success} Cliente registrado con éxito.`));
+    UI.renderTable(headers, rows);
+    await text({ message: 'Presione ENTER para continuar...' });
+}
 
-        await text({ message: 'Presione ENTER para continuar...' });
-    }
+async createContract() {
+    UI.displayHeader('> Modo Freelancer > Gestion de Contratos > Crear Contrato');
 
-    async updateClient() {
-        UI.displayHeader('> Modo Freelancer > Gestion de Clientes > Actualizar Cliente');
+    const projectId = await this.selectProjectInteractive();
 
-        const clientId = await this.selectClientInteractive();
-        if (!clientId) return;
+    const title = await text({
+        message: 'Titulo o asunto del Contrato:',
+        validate: val => (!val || val.trim().length === 0) ? 'El titulo es requerido' : undefined
+    });
+    if (isCancel(title)) return;
 
-        const name = await text({ message: 'Nuevo Nombre del Cliente (Dejar en blanco para mantener actual):' });
-        if (isCancel(name)) return;
+    const conditions = await text({
+        message: 'Condiciones / Alcance del contrato:'
+    });
+    if (isCancel(conditions)) return;
 
-        const email = await text({
-            message: 'Nuevo Correo Electrónico (Dejar en blanco para mantener actual):',
-            validate: val => (val && val.trim() !== '' && !validator.isEmail(val)) ? 'Ingrese un email válido' : undefined
-        });
-        if (isCancel(email)) return;
-
-        const phone = await text({ message: 'Nuevo Teléfono (Dejar en blanco para mantener actual):' });
-        if (isCancel(phone)) return;
-
-        const updateData = {};
-        if (name && name.trim()) updateData.name = name.trim();
-        if (email && email.trim()) updateData.email = email.trim();
-        if (phone && phone.trim()) updateData.phone = phone.trim();
-
-        if (Object.keys(updateData).length === 0) {
-            await text({ message: 'No se realizaron cambios. Presione ENTER para continuar...' });
-            return;
+    const totalValue = await text({
+        message: 'Valor total acordado ($):',
+        validate: val => {
+            const num = Number(val);
+            if (isNaN(num) || num < 0) return 'Ingrese un monto numerico valido';
         }
+    });
+    if (isCancel(totalValue)) return;
 
-        updateData.updatedAt = new Date();
+    const startDate = await text({
+        message: 'Fecha de inicio (YYYY-MM-DD) [ENTER para hoy]:'
+    });
+    if (isCancel(startDate)) return;
 
-        const spinner = UI.createSpinner('Actualizando información del cliente...').start();
-        await this.clientsCollection.updateOne(
-            { _id: new ObjectId(clientId) },
-            { $set: updateData }
+    const endDate = await text({
+        message: 'Fecha estimada de fin (YYYY-MM-DD):',
+        validate: val => (!val || val.trim().length === 0) ? 'La fecha de fin es requerida' : undefined
+    });
+    if (isCancel(endDate)) return;
+
+    const status = await select({
+        message: 'Estado inicial del contrato:',
+        options: [
+            { value: 'activo', label: 'Activo' },
+            { value: 'pendiente', label: 'Pendiente de firma' },
+            { value: 'finalizado', label: 'Finalizado' },
+            { value: 'cancelado', label: 'Cancelado' }
+        ]
+    });
+    if (isCancel(status)) return;
+
+    const spinner = UI.createSpinner('Generando contrato y asignando ID...').start();
+
+    const count = await this.contractsCollection.countDocuments();
+    const customCode = `C-${String(count + 1).padStart(3, '0')}`;
+
+    const newContract = {
+        code: customCode,
+        title: title.trim(),
+        conditions: conditions?.trim() || '',
+        totalValue: Number(totalValue),
+        startDate: startDate?.trim() ? new Date(startDate.trim()) : new Date(),
+        endDate: new Date(endDate.trim()),
+        projectId: projectId ? new ObjectId(projectId) : null,
+        status,
+        createdAt: new Date()
+    };
+
+    const result = await this.contractsCollection.insertOne(newContract);
+    
+    // Si se vinculó a un proyecto, sincronizamos la referencia en la colección de proyectos
+    if (projectId) {
+        await this.projectsCollection.updateOne(
+            { _id: new ObjectId(projectId) },
+            { $set: { contractId: result.insertedId } }
         );
-        spinner.succeed(chalk.green(`${UI.symbols.success} Cliente actualizado con éxito.`));
-
-        await text({ message: 'Presione ENTER para continuar...' });
     }
 
-    async deleteClient() {
-        UI.displayHeader('> Modo Freelancer > Gestion de Clientes > Eliminar Cliente');
+    spinner.succeed(chalk.green(`${UI.symbols.success} Contrato registrado exitosamente con codigo ${chalk.bold(customCode)}`));
+    await text({ message: 'Presione ENTER para continuar...' });
+}
 
-        const clientId = await this.selectClientInteractive();
-        if (!clientId) return;
+async updateContract() {
+    UI.displayHeader('> Modo Freelancer > Gestion de contratos > Actualizar Contrato');
 
-        const confirmDelete = await confirm({
-            message: '¿Está seguro de que desea eliminar este cliente?'
-        });
-        if (!confirmDelete || isCancel(confirmDelete)) return;
+    const contractId = await this.selectContractInteractive();
+    if (!contractId) return;
 
-        const spinner = UI.createSpinner('Eliminando cliente de la base de datos...').start();
-        await this.clientsCollection.deleteOne({ _id: new ObjectId(clientId) });
-        spinner.succeed(chalk.green(`${UI.symbols.success} Cliente eliminado con éxito.`));
+    const contract = await this.contractsCollection.findOne({ _id: new ObjectId(contractId) });
+    if (!contract) return;
 
-        await text({ message: 'Presione ENTER para continuar...' });
-    }
+    const title = await text({
+        message: `Nuevo titulo (Actual: "${contract.title}") [ENTER para mantener]:`
+    });
+    if (isCancel(title)) return;
 
-    // SUBMÓDULO: GESTIÓN DE PROPUESTAS
-
-    async proposalsSubMenu() {
-        while (true) {
-            UI.displayHeader('> Modo Freelancer > Gestion de Propuestas');
-
-            const action = await select({
-                message: 'Operaciones de Propuestas:',
-                options: [
-                    { value: 'list', label: 'Listar Propuestas' },
-                    { value: 'create', label: 'Crear Nueva Propuesta' },
-                    { value: 'change_status', label: 'Cambiar Estado de Propuesta' },
-                    { value: 'back', label: 'Volver' }
-                ]
-            });
-
-            if (isCancel(action) || action === 'back') break;
-
-            if (action === 'list') await this.listProposals();
-            if (action === 'create') await this.createProposal();
-            if (action === 'change_status') await this.changeProposalStatus();
-        }
-    }
-
-    async listProposals() {
-        UI.displayHeader('> Modo Freelancer > Gestion de Propuestas > Listar Propuestas');
-        const proposals = await this.proposalsCollection.find().toArray();
-
-        if (!proposals.length) {
-            this.renderEmptyStateBox('propuestas', 'No existen propuestas registradas actualmente.');
-        } else {
-            const headers = ['ID', 'Título', 'Precio ($)', 'Plazo', 'Estado'];
-            const rows = proposals.map(pr => [
-                pr._id.toString(),
-                pr.title || 'Sin título',
-                `$${(pr.price || 0).toFixed(2)}`,
-                pr.deadline || 'N/A',
-                this.getBadge('proposals', pr.status)
-            ]);
-            UI.renderTable(headers, rows);
-        }
-
-        await text({ message: 'Presione ENTER para continuar...' });
-    }
-
-    async createProposal() {
-        UI.displayHeader('> Modo Freelancer > Gestion de Propuestas > Crear Propuesta');
-
-        const clientId = await this.selectClientInteractive();
-        if (!clientId) return;
-
-        const title = await text({
-            message: 'Título de la Propuesta:',
-            validate: val => (!val || val.trim().length === 0) ? 'El título es requerido' : undefined
-        });
-        if (isCancel(title)) return;
-
-        const description = await text({
-            message: 'Descripción del Trabajo / Alcance:',
-            validate: val => (!val || val.trim().length === 0) ? 'La descripción es requerida' : undefined
-        });
-        if (isCancel(description)) return;
-
-        const price = await text({
-            message: 'Precio estimado ($):',
-            validate: val => {
+    const totalValue = await text({
+        message: `Nuevo valor total (Actual: $${contract.totalValue}) [ENTER para mantener]:`,
+        validate: val => {
+            if (val && val.trim() !== '') {
                 const num = Number(val);
-                if (isNaN(num) || num <= 0) return 'Ingrese un precio válido mayor a 0';
+                if (isNaN(num) || num < 0) return 'Ingrese un monto numerico valido';
             }
-        });
-        if (isCancel(price)) return;
-
-        const deadline = await text({
-            message: 'Plazo de entrega (ej. "15 días", "2026-09-30"):',
-            validate: val => (!val || val.trim().length === 0) ? 'El plazo es requerido' : undefined
-        });
-        if (isCancel(deadline)) return;
-
-        const status = await select({
-            message: 'Estado inicial de la propuesta:',
-            options: [
-                { value: 'pendiente', label: 'Pendiente' },
-                { value: 'aceptada', label: 'Aceptada (Generará proyecto automáticamente)' },
-                { value: 'rechazada', label: 'Rechazada' }
-            ]
-        });
-        if (isCancel(status)) return;
-
-        const client = Database.getClient();
-        const session = client.startSession();
-        const spinner = UI.createSpinner('Guardando propuesta...').start();
-
-        try {
-            session.startTransaction();
-
-            const proposalDoc = {
-                clientId: new ObjectId(clientId),
-                title: title.trim(),
-                description: description.trim(),
-                price: Number(price),
-                deadline: deadline.trim(),
-                status,
-                createdAt: new Date()
-            };
-
-            const propResult = await this.proposalsCollection.insertOne(proposalDoc, { session });
-
-            let projectCreated = false;
-            if (status === 'aceptada') {
-                await this.projectsCollection.insertOne({
-                    name: title.trim(),
-                    clientId: new ObjectId(clientId),
-                    proposalId: propResult.insertedId,
-                    status: 'activo',
-                    progress: 0,
-                    budget: Number(price),
-                    createdAt: new Date()
-                }, { session });
-                projectCreated = true;
-            }
-
-            await session.commitTransaction();
-            const successMsg = projectCreated 
-                ? 'Propuesta creada y Proyecto activado automáticamente.' 
-                : 'Propuesta guardada exitosamente.';
-            spinner.succeed(chalk.green(`${UI.symbols.success} ${successMsg}`));
-        } catch (error) {
-            await session.abortTransaction();
-            spinner.fail(chalk.red(`${UI.symbols.error} Error al guardar propuesta: ${error.message}`));
-        } finally {
-            await session.endSession();
         }
+    });
+    if (isCancel(totalValue)) return;
 
-        await text({ message: 'Presione ENTER para continuar...' });
-    }
+    const status = await select({
+        message: `Estado del contrato (Actual: ${contract.status}):`,
+        options: [
+            { value: 'activo', label: 'Activo' },
+            { value: 'pendiente', label: 'Pendiente de firma' },
+            { value: 'finalizado', label: 'Finalizado' },
+            { value: 'cancelado', label: 'Cancelado' }
+        ]
+    });
+    if (isCancel(status)) return;
 
-    async changeProposalStatus() {
-        UI.displayHeader('> Modo Freelancer > Gestion de Propuestas > Cambiar Estado');
+    const updateData = { status, updatedAt: new Date() };
+    if (title && title.trim()) updateData.title = title.trim();
+    if (totalValue && totalValue.trim()) updateData.totalValue = Number(totalValue);
 
-        const proposalId = await this.selectProposalInteractive();
-        if (!proposalId) return;
+    const spinner = UI.createSpinner('Actualizando contrato...').start();
+    await this.contractsCollection.updateOne(
+        { _id: new ObjectId(contractId) },
+        { $set: updateData }
+    );
+    spinner.succeed(chalk.green(`${UI.symbols.success} Contrato [${contract.code}] actualizado con exito.`));
 
-        const proposal = await this.proposalsCollection.findOne({ _id: new ObjectId(proposalId) });
-        if (!proposal) return;
+    await text({ message: 'Presione ENTER para continuar...' });
+}
 
-        const newStatus = await select({
-            message: `Estado actual: ${proposal.status}. Seleccione el nuevo estado:`,
-            options: [
-                { value: 'pendiente', label: 'Pendiente' },
-                { value: 'aceptada', label: 'Aceptada (Generará proyecto)' },
-                { value: 'rechazada', label: 'Rechazada' }
-            ]
-        });
-        if (isCancel(newStatus) || newStatus === proposal.status) {
-            await text({ message: 'Sin cambios. Presione ENTER para continuar...' });
-            return;
-        }
+async deleteContract() {
+    UI.displayHeader('> Modo Freelancer > Gestion de contratos > Eliminar contrato');
 
-        const client = Database.getClient();
-        const session = client.startSession();
-        const spinner = UI.createSpinner('Actualizando estado de la propuesta...').start();
+    const contractId = await this.selectContractInteractive();
+    if (!contractId) return;
 
-        try {
-            session.startTransaction();
+    const contract = await this.contractsCollection.findOne({ _id: new ObjectId(contractId) });
+    if (!contract) return;
 
-            await this.proposalsCollection.updateOne(
-                { _id: new ObjectId(proposalId) },
-                { $set: { status: newStatus, updatedAt: new Date() } },
-                { session }
-            );
+    const confirmDelete = await confirm({
+        message: `¿Está seguro de que desea eliminar el contrato ${contract.code}?`
+    });
+    if (!confirmDelete || isCancel(confirmDelete)) return;
 
-            let projectCreated = false;
+    const spinner = UI.createSpinner('Eliminando contrato y desvinculando referencias...').start();
 
-            if (newStatus === 'aceptada') {
-                const existingProject = await this.projectsCollection.findOne(
-                    { proposalId: new ObjectId(proposalId) },
-                    { session }
-                );
+    // Desvincular de cualquier proyecto asociado
+    await this.projectsCollection.updateMany(
+        { contractId: new ObjectId(contractId) },
+        { $set: { contractId: null } }
+    );
 
-                if (!existingProject) {
-                    await this.projectsCollection.insertOne({
-                        name: proposal.title || 'Proyecto desde Propuesta',
-                        clientId: proposal.clientId,
-                        proposalId: new ObjectId(proposalId),
-                        status: 'activo',
-                        progress: 0,
-                        budget: proposal.price || 0,
-                        createdAt: new Date()
-                    }, { session });
-                    projectCreated = true;
-                }
-            }
+    await this.contractsCollection.deleteOne({ _id: new ObjectId(contractId) });
+    spinner.succeed(chalk.green(`${UI.symbols.success} Contrato [${contract.code}] eliminado con exito.`));
 
-            await session.commitTransaction();
-
-            const msg = projectCreated
-                ? 'Propuesta ACEPTADA y Proyecto automático generado.'
-                : 'Estado de propuesta actualizado correctamente.';
-
-            spinner.succeed(chalk.green(`${UI.symbols.success} ${msg}`));
-        } catch (error) {
-            await session.abortTransaction();
-            spinner.fail(chalk.red(`${UI.symbols.error} Error en transacción: ${error.message}`));
-        } finally {
-            await session.endSession();
-        }
-
-        await text({ message: 'Presione ENTER para continuar...' });
-    }
+    await text({ message: 'Presione ENTER para continuar...' });
+}
 
 
 // selectores interactivos auxiliares
@@ -877,56 +774,12 @@ async deleteProject() {
 
 // Submodulo: Gestion de contratos
 
-async contractsSubMenu() {
-    while (true) {
-        UI.displayHeader('> Modo Freelancer > Gestion de contratos');
-
-        const action = await select({
-            message: 'Operaciones de Contratos:',
-            options: [
-                { value: 'list', label: 'Listar Contratos y Detalles' },
-                { value: 'create', label: 'Crear Nuevo contrato' },
-                { value: 'update', label: 'Actualizar Contrato / Estado' },
-                { value: 'back', label: 'Volver' }
-            ]
-        });
-
-        if (isCanccel(action) || action === 'back') break;
-
-        if (action === 'list') await this.listContracts();
-        if (action === 'create') await this.createContracts();
-        if (action === 'update') await this.updateContract();
-        if (action === 'delete') await this.deleteContract();
-    }
-}
-
-async selectContractInteractive() {
-    const contracts = await this.contractsCollection.find().toArray();
-    if (!contracts.length) return null;
-
-    const choices = [
-        { value: 'none', label: 'Sin contrato vinculado' },
-        ...contracts.map(c => ({
-            value: c._id.toString(),
-            label: `[${c.code}] ${c.title || 'Sin titulo'}`
-        }))
-    ];
-
-    const selectedId = await select({
-        message: 'Seleccione un Contrato para vincular:',
-        options: choices
-    });
-
-    if (isCanccel(selectedId) || selectedId === 'none') return null;
-    return selectedId;
-}
-
 async listContracts() {
     UI.displayHeader('> Modo Freelancer > Gestion de contratos > Listar contratos');
     const contracts = await this.contractsCollection.find().toArray();
 
     if (!contracts.length) {
-        this.renderEmptyStateBox('contratos', 'Mo hay contratos registrados.');
+        this.renderEmptyStateBox('contratos', 'No hay contratos registrados.');
         await text({ message: 'Presione ENTER para continuar...' });
         return;
     }
@@ -934,9 +787,12 @@ async listContracts() {
     const projects = await this.projectsCollection.find().toArray();
     const projectMap = new Map(projects.map(p => [p._id.toString(), p.name]));
 
+    // Definición de las cabeceras de la tabla
+    const headers = ['ID', 'Título', 'Proyecto', 'Valor Total', 'Inicio', 'Fin', 'Estado'];
+
     const rows = contracts.map(c => {
         const projectName = c.projectId ? (projectMap.get(c.projectId.toString()) || 'No encontrado') : 'Sin proyecto';
-        const formattedValue = c.totalValue ? `$${Number(c.totalValue).toLocaleString('en-US', {minimumFractionDigits: 2 })}` : '$0.00';
+        const formattedValue = c.totalValue ? `$${Number(c.totalValue).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '$0.00';
         const startDate = c.startDate ? new Date(c.startDate).toLocaleDateString() : 'N/A';
         const endDate = c.endDate ? new Date(c.endDate).toLocaleDateString() : 'N/A';
 
@@ -952,154 +808,8 @@ async listContracts() {
     });
 
     UI.renderTable(headers, rows);
-    await text({ message: 'Presione ENTER para continuar...'});
-}
-
-async createContract() {
-    UI.displayHeader('> Modo Freelancer > Gestion de Contratos > Crear Contrato');
-
-    const projectId = await this.selectProjectInteractive();
-
-    const title = await text({
-        message: 'Titulo o asunto del Contrato:',
-        validate : val => (!val || val.trim().length === 0) ? 'El titulo es requerido' : undefined
-    });
-    if (isCancel(title)) return;
-
-    const conditions = await text({
-        message: 'Condiciones / Alcance del contrato:'
-    });
-    if (isCancel(conditions)) return;
-
-    const totalValue = await text({
-        message: 'Valor total acordado ($):',
-        validate: val => {
-            const num = Number(val);
-            if (isNaN(num) || num < 0) return 'Ingrese un monto numerico valido';
-        }
-    });
-    if (isCancel(totalValue)) return;
-
-    const startDate = await text({
-        message: 'Fecha de inicio (YYYY-MM-DD) [ENTER para hoy]:'
-    });
-    if(isCancel(startDate)) return;
-
-    const endDate = await text({
-        message: 'Fecha estimada de fin (YYYY-MM-DD):',
-        validate: val => (!val || val.trim().length === 0) ? 'La fecha de fin es requerida' : undefined
-    });
-    if (isCancel(endDate)) return;
-
-    const status = await select({
-        message: 'Estado inicial del contrato:',
-        options: [
-            { value: 'activo', label: 'Activo'},
-            { value: 'pendiente', label: 'Pendiente de firma' },
-            { value: 'finalizado', label: 'Finalizado'},
-            { value: 'cancelado', label: 'Cancelado' }
-        ]
-    });
-    if (isCancel(status)) return;
-
-    const spinner = UI.createSpinner('Generando contrato y asinando ID...').start();
-
-    const count = await this.contractsCollection.countDocuments();
-    const customCode = `C-${String(count + 1).padStart(3, '0')}`;
-
-    const newContract = {
-        code: customCode,
-        title: title.trim(),
-        conditions: conditions?.trim() || '',
-        totalValue: Number(totalValue),
-        startDate: start.Date?.trim() ? new Date(startDate.trim()) : new Date(),
-        endDate: new Date(endDate.trim()),
-        projectId: projectId ? new ObjectId(projectId) : null, status,
-        createdAt: new Date()
-    };
-
-    const result = await this.contractsCollection.insertOne(newCoontract);
-    
-    // Si se vinculo a un proyecto, sincronizamos la referencia en la colleccion de proyectos
-    if (projectId) {
-        await this.projectsCollection.updateOne(
-            { _id: new ObjectId(projectId) },
-            { $set: { contractId: result.insertedId }}
-        );
-    }
-
-    spinner.succeed(chalk.green(`${UI.symbols.success} Contrato registrado exitosamente con codigo ${chalk.bold(customCode)}`));
     await text({ message: 'Presione ENTER para continuar...' });
 }
-
-async updateContract() {
-    UI.displayHeader('> Modo Freelancer > Gestion de contratos > Actualizar Contrato');
-
-    const contract = await TouchList.contractsCollection.findOne({ _id: new ObjectId(contractId) });
-    if (!contact) return;
-
-    const title = await text({
-        message: `Nuevo titlulo (Actual: "$${contract.title}") [ENTER para mantener]:`,
-        validate: val => {
-            if (val && val.trim() !== '') {
-                const num = Number(val);
-                if (isNaN(num) || num < 0) return 'Ingrese un monto numerico valido';
-            }
-        }
-    });
-    if (isCancel(totalValue)) return;
-
-    const status = await select({
-        message: `Estado del contrato (Actual: ${contract.status}):`,
-        options: [
-            { value: 'activo', label: 'Activo' },
-            { value: 'pendiente', label: 'Pendiente de firma' },
-            { value: 'finalizado', label: 'Finalizado' },
-            { value: 'cancelado', label: 'Cancelado' }
-        ]
-    });
-    if (isCancel(status)) return;
-
-    const updateData = { status, updatedAt: new Date() };
-    if (title && title.trim()) updateData.title = title.trim();
-    if (totalValue && totalValue.trim()) updateData.totalValue = Number(totalValue);
-
-    const spinner = UI.createSpinner('Actualizando contrato...').start();
-    await this.contractsCollection.updateOne(
-        { _id: new ObjectId(contractId) },
-        { $set: updateData }
-    );
-    spinner.succeed(chalk.green(`${UI.symbols.success} Contrato [${contract.code}] actualizado con exito.`));
-
-    await text({ message: 'Presione ENTER para continuar...'});
-}
-
-async deleteContract() {
-    UI.displayHeader('> Modo Freelancer > Gestion de contratos > Eliminar contrato');
-
-    const contractId = await this.selectContractInteractive();
-    if (!contractId) return;
-
-    const contract = await confirm({
-        message: `Esta seguro de que desea eliminar el contrato ${contract.code}?`
-    });
-    if (!confirmDelete || isCancel(confirmDelete)) return;
-
-    const spinner = UI.createSpinner('Eliminando contrato y desvinculando referencias...').start();
-
-    // Desvincular de cualquier proyeccto asociado
-    await this.projectsCollection.updateMany(
-        { contractId: new ObjectId(contractId) },
-        { $set: { contractId: null }}
-    );
-
-    await this.contractsCollection.deleteOne({ _id: new ObjectId(contractId) });
-    spinner.succeed(chalk.green(`${UI.symbols.success} Contrato [${contract.code}] eliminado con exito.`));
-
-    await text({ messager: 'Presione ENTER para continuar...'});
-}
-
-
 
     // SUBMÓDULO: GESTIÓN DE ENTREGABLES
 
