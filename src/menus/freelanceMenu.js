@@ -541,15 +541,18 @@ export class FreelanceMenu {
 
     // SUBMÓDULO: GESTIÓN DE PROYECTOS
 
-    async projectsSubMenu() {
+async projectsSubMenu() {
         while (true) {
             UI.displayHeader('> Modo Freelancer > Gestion de Proyectos');
 
             const action = await select({
                 message: 'Operaciones de Proyectos:',
                 options: [
-                    { value: 'list', label: 'Listar Proyectos (Con Progreso Visual)' },
-                    { value: 'update_progress', label: 'Actualizar Avance de Proyecto' },
+                    { value: 'list', label: 'Listar Proyectos y Detalles' },
+                    { value: 'create', label: 'Crear Nuevo Proyecto' },
+                    { value: 'update', label: 'Actualizar Proyecto / Estado' },
+                    { value: 'progress', label: 'Registrar Avance (%)' },
+                    { value: 'delete', label: 'Eliminar Proyecto' },
                     { value: 'back', label: 'Volver' }
                 ]
             });
@@ -557,7 +560,10 @@ export class FreelanceMenu {
             if (isCancel(action) || action === 'back') break;
 
             if (action === 'list') await this.listProjects();
-            if (action === 'update_progress') await this.updateProjectProgress();
+            if (action === 'create') await this.createProject();
+            if (action === 'update') await this.updateProject();
+            if (action === 'progress') await this.updateProjectProgress();
+            if (action === 'delete') await this.deleteProject();
         }
     }
 
@@ -566,46 +572,228 @@ export class FreelanceMenu {
         const projects = await this.projectsCollection.find().toArray();
 
         if (!projects.length) {
-            this.renderEmptyStateBox('proyectos', 'Utiliza la opción de registro de proyectos para vincular uno nuevo.');
-        } else {
-            const headers = ['ID Proyecto', 'Nombre', 'Estado', 'Progreso de Avance'];
-            const rows = projects.map(pr => [
-                pr._id.toString(),
-                pr.name || 'Sin título',
-                this.getBadge('projects', pr.status),
-                this.renderInlineProgressBar(pr.progress || 0, 12)
-            ]);
-            UI.renderTable(headers, rows);
+            this.renderEmptyStateBox('proyectos', 'Crea un nuevo proyecto para comenzar.');
+            await text({ message: 'Presione ENTER para continuar...' });
+            return;
         }
+
+        // Obtener clientes, contratos y entregables vinculados para armar la vista detallada
+        const clients = await this.clientsCollection.find().toArray();
+        const contracts = await this.contractsCollection.find().toArray();
+        const deliverables = await this.deliverablesCollection.find().toArray();
+
+        const clientMap = new Map(clients.map(c => [c._id.toString(), c.name]));
+        const contractMap = new Map(contracts.map(c => [c._id.toString(), c.title || 'Contrato sin título']));
+
+        const headers = ['ID', 'Proyecto', 'Cliente', 'Contrato', 'Entregables', 'Estado', 'Progreso'];
+        
+        const rows = projects.map(p => {
+            const clientName = p.clientId ? (clientMap.get(p.clientId.toString()) || 'No encontrado') : 'Sin cliente';
+            const contractTitle = p.contractId ? (contractMap.get(p.contractId.toString()) || 'Vinculado') : 'Sin contrato';
+            
+            // Contar entregables asociados al proyecto
+            const linkedDeliverables = deliverables.filter(d => d.projectId && d.projectId.toString() === p._id.toString()).length;
+
+            return [
+                p._id.toString().substring(0, 8) + '...',
+                p.name || 'Sin nombre',
+                clientName,
+                contractTitle,
+                `${linkedDeliverables} entregable(s)`,
+                this.getBadge('projects', p.status),
+                this.renderInlineProgressBar(p.progress || 0, 10)
+            ];
+        });
+
+        UI.renderTable(headers, rows);
+        await text({ message: 'Presione ENTER para continuar...' });
+    }
+
+    async createProject() {
+        UI.displayHeader('> Modo Freelancer > Gestion de Proyectos > Crear Proyecto');
+
+        // 1. Asociación requerida con Cliente
+        const clientId = await this.selectClientInteractive();
+        if (!clientId) return;
+
+        // 2. Nombre del proyecto
+        const name = await text({
+            message: 'Nombre del Proyecto:',
+            validate: val => (!val || val.trim().length === 0) ? 'El nombre es requerido' : undefined
+        });
+        if (isCancel(name)) return;
+
+        // 3. Descripción / Alcance
+        const description = await text({
+            message: 'Descripción o alcance del proyecto (Opcional):'
+        });
+        if (isCancel(description)) return;
+
+        // 4. Presupuesto asignado
+        const budget = await text({
+            message: 'Presupuesto asignado ($):',
+            validate: val => {
+                if (val && val.trim() !== '') {
+                    const num = Number(val);
+                    if (isNaN(num) || num < 0) return 'Ingrese un monto numérico válido';
+                }
+            }
+        });
+        if (isCancel(budget)) return;
+
+        // 5. Estado inicial (activo, pausado, finalizado, cancelado)
+        const status = await select({
+            message: 'Estado inicial del proyecto:',
+            options: [
+                { value: 'activo', label: 'Activo' },
+                { value: 'pausado', label: 'Pausado' },
+                { value: 'finalizado', label: 'Finalizado' },
+                { value: 'cancelado', label: 'Cancelado' }
+            ]
+        });
+        if (isCancel(status)) return;
+
+        // 6. Asociación opcional con Contrato
+        const contractId = await this.selectContractInteractive();
+
+        const spinner = UI.createSpinner('Guardando proyecto en la base de datos...').start();
+
+        const newProject = {
+            name: name.trim(),
+            description: description?.trim() || '',
+            clientId: new ObjectId(clientId),
+            contractId: contractId ? new ObjectId(contractId) : null,
+            status,
+            progress: 0,
+            budget: budget ? Number(budget) : 0,
+            createdAt: new Date()
+        };
+
+        await this.projectsCollection.insertOne(newProject);
+        spinner.succeed(chalk.green(`${UI.symbols.success} Proyecto creado exitosamente.`));
+
+        await text({ message: 'Presione ENTER para continuar...' });
+    }
+
+    async updateProject() {
+        UI.displayHeader('> Modo Freelancer > Gestion de Proyectos > Actualizar Proyecto');
+
+        const projectId = await this.selectProjectInteractive();
+        if (!projectId) return;
+
+        const project = await this.projectsCollection.findOne({ _id: new ObjectId(projectId) });
+        if (!project) return;
+
+        const name = await text({
+            message: `Nuevo nombre (Actual: "${project.name}") [ENTER para mantener]:`
+        });
+        if (isCancel(name)) return;
+
+        const status = await select({
+            message: `Estado del proyecto (Actual: ${project.status}):`,
+            options: [
+                { value: 'activo', label: 'Activo' },
+                { value: 'pausado', label: 'Pausado' },
+                { value: 'finalizado', label: 'Finalizado' },
+                { value: 'cancelado', label: 'Cancelado' }
+            ]
+        });
+        if (isCancel(status)) return;
+
+        const updateData = { status, updatedAt: new Date() };
+        if (name && name.trim()) updateData.name = name.trim();
+
+        const rebindContract = await confirm({
+            message: '¿Desea cambiar la vinculación del contrato?'
+        });
+        
+        if (!isCancel(rebindContract) && rebindContract) {
+            const newContractId = await this.selectContractInteractive();
+            updateData.contractId = newContractId ? new ObjectId(newContractId) : null;
+        }
+
+        const spinner = UI.createSpinner('Actualizando información del proyecto...').start();
+        await this.projectsCollection.updateOne(
+            { _id: new ObjectId(projectId) },
+            { $set: updateData }
+        );
+        spinner.succeed(chalk.green(`${UI.symbols.success} Proyecto actualizado con éxito.`));
 
         await text({ message: 'Presione ENTER para continuar...' });
     }
 
     async updateProjectProgress() {
-        UI.displayHeader('> Modo Freelancer > Gestion de Proyectos > Actualizar Avance');
+        UI.displayHeader('> Modo Freelancer > Gestion de Proyectos > Registrar Avance');
 
         const projectId = await this.selectProjectInteractive();
         if (!projectId) return;
+
+        const project = await this.projectsCollection.findOne({ _id: new ObjectId(projectId) });
+        if (!project) return;
+
+        console.log(chalk.cyan(`Progreso actual: ${this.renderInlineProgressBar(project.progress || 0, 15)}`));
 
         const newProgress = await text({
             message: 'Ingrese el nuevo porcentaje de avance (0 - 100):',
             validate: val => {
                 const num = Number(val);
-                if (isNaN(num) || num < 0 || num > 100) return 'Ingrese un número válido entre 0 y 100';
+                if (isNaN(num) || num < 0 || num > 100) return 'Ingrese un número entero o decimal entre 0 y 100';
             }
         });
         if (isCancel(newProgress)) return;
 
-        const spinner = UI.createSpinner('Actualizando estado del proyecto...').start();
+        const progressNum = Number(newProgress);
+        const updateData = {
+            progress: progressNum,
+            updatedAt: new Date()
+        };
+
+        // Autocompletar a estado 'finalizado' si llega al 100%
+        if (progressNum === 100 && project.status !== 'finalizado') {
+            const autoFinish = await confirm({
+                message: 'El avance llegó al 100%. ¿Desea marcar el proyecto como FINALIZADO?'
+            });
+            if (autoFinish && !isCancel(autoFinish)) {
+                updateData.status = 'finalizado';
+            }
+        }
+
+        const spinner = UI.createSpinner('Registrando avance...').start();
         await this.projectsCollection.updateOne(
             { _id: new ObjectId(projectId) },
-            { $set: { progress: Number(newProgress), updatedAt: new Date() } }
+            { $set: updateData }
         );
-        spinner.succeed(chalk.green(`${UI.symbols.success} Avance de proyecto actualizado correctamente.`));
+        spinner.succeed(chalk.green(`${UI.symbols.success} Avance actualizado a ${progressNum}%.`));
 
         await text({ message: 'Presione ENTER para continuar...' });
     }
 
+    async deleteProject() {
+        UI.displayHeader('> Modo Freelancer > Gestion de Proyectos > Eliminar Proyecto');
+
+        const projectId = await this.selectProjectInteractive();
+        if (!projectId) return;
+
+        // Verificar si existen entregables vinculados
+        const linkedDeliverables = await this.deliverablesCollection.countDocuments({
+            projectId: new ObjectId(projectId)
+        });
+
+        if (linkedDeliverables > 0) {
+            console.log(chalk.yellow(`${UI.symbols.warning} Atención: Este proyecto tiene ${linkedDeliverables} entregables asociados.`));
+        }
+
+        const confirmDelete = await confirm({
+            message: '¿Está seguro de que desea eliminar este proyecto?'
+        });
+        if (!confirmDelete || isCancel(confirmDelete)) return;
+
+        const spinner = UI.createSpinner('Eliminando proyecto de la base de datos...').start();
+        await this.projectsCollection.deleteOne({ _id: new ObjectId(projectId) });
+        spinner.succeed(chalk.green(`${UI.symbols.success} Proyecto eliminado con éxito.`));
+
+        await text({ message: 'Presione ENTER para continuar...' });
+    }
     // SUBMÓDULO: GESTIÓN DE ENTREGABLES
 
     async deliverablesSubMenu() {
