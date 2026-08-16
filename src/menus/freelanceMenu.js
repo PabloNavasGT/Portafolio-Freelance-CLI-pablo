@@ -18,13 +18,13 @@ export class FreelanceMenu {
     get deliverablesCollection() { return this.db.collection('deliverables'); }
     get financesCollection() { return this.db.collection('finances'); }
 
-    // Método de arranque principal
-    async show() {
-        return await this.mainMenu();
-    }
+// Método de arranque principal
+async show() {
+    return await this.mainMenu();
+}
 
-    // Genera etiquetas (Badges) estilizadas
-    getBadge(category, status) {
+// Genera etiquetas (Badges) estilizadas
+getBadge(category, status) {
         const st = status || '';
         switch (category) {
             case 'proposals':
@@ -55,10 +55,10 @@ export class FreelanceMenu {
             default:
                 return chalk.gray(`[ ${st || 'N/A'} ]`);
         }
-    }
+}
 
-    // Renderiza una barra de progreso gráfica ASCII
-    renderInlineProgressBar(percentage = 0, length = 10) {
+// Renderiza una barra de progreso gráfica ASCII
+renderInlineProgressBar(percentage = 0, length = 10) {
         const validPercent = Math.min(100, Math.max(0, Number(percentage) || 0));
         const filledLength = Math.round((validPercent / 100) * length);
         const emptyLength = length - filledLength;
@@ -67,10 +67,10 @@ export class FreelanceMenu {
         const emptyBar = chalk.gray('░'.repeat(emptyLength));
 
         return `[${filledBar}${emptyBar}] ${chalk.bold(validPercent)}%`;
-    }
+}
 
-    // Imprime cajas estilizadas cuando una colección está vacía
-    renderEmptyStateBox(entityName, actionTip) {
+// Imprime cajas estilizadas cuando una colección está vacía
+renderEmptyStateBox(entityName, actionTip) {
         const message = `${UI.symbols.warning} ${chalk.yellow('No existen ' + entityName + ' registrados actualmente.')}\n${chalk.gray(actionTip)}`;
         console.log(
             boxen(message, {
@@ -81,11 +81,11 @@ export class FreelanceMenu {
                 align: 'center'
             })
         );
-    }
+}
 
-    // SELECTORES INTERACTIVOS
+// SELECTORES INTERACTIVOS
 
-    async selectClientInteractive() {
+async selectClientInteractive() {
         const clients = await this.clientsCollection.find().toArray();
         if (!clients.length) {
             this.renderEmptyStateBox('clientes', 'Registra un cliente antes de continuar.');
@@ -103,9 +103,9 @@ export class FreelanceMenu {
         });
 
         return isCancel(selectedId) ? null : selectedId;
-    }
+}
 
-    async selectProjectInteractive() {
+async selectProjectInteractive() {
         const projects = await this.projectsCollection.find().toArray();
         if (!projects.length) {
             this.renderEmptyStateBox('proyectos', 'Crea un proyecto primero desde la opción correspondiente.');
@@ -123,9 +123,9 @@ export class FreelanceMenu {
         });
 
         return isCancel(selectedId) ? null : selectedId;
-    }
+}
 
-    async selectDeliverableInteractive() {
+async selectDeliverableInteractive() {
         const deliverables = await this.deliverablesCollection.find().toArray();
         if (!deliverables.length) {
             this.renderEmptyStateBox('entregables', 'No hay entregables disponibles para seleccionar.');
@@ -143,9 +143,9 @@ export class FreelanceMenu {
         });
 
         return isCancel(selectedId) ? null : selectedId;
-    }
+}
 
-    async selectProposalInteractive() {
+async selectProposalInteractive() {
         const proposals = await this.proposalsCollection.find().toArray();
         if (!proposals.length) {
             this.renderEmptyStateBox('propuestas', 'Crea una propuesta primero.');
@@ -163,11 +163,11 @@ export class FreelanceMenu {
         });
 
         return isCancel(selectedId) ? null : selectedId;
-    }
+}
 
-    // MENÚ PRINCIPAL
+// MENÚ PRINCIPAL
 
-    async mainMenu() {
+async mainMenu() {
         while (true) {
             UI.displayHeader('> Modo Freelancer > Menu Principal');
 
@@ -195,9 +195,9 @@ export class FreelanceMenu {
                 case 'finances': await this.financesSubMenu(); break;
             }
         }
-    }
+}
 
-    // SUBMÓDULO: GESTIÓN DE CLIENTES
+// SUBMÓDULO: GESTIÓN DE CLIENTES
 
 async contractsSubMenu() {
     while (true) {
@@ -458,7 +458,7 @@ async selectProjectInteractive() {
 
         if (isCancel(selectedId)) return null;
         return selectedId;
-    }
+}
 
 // Gestion de proyectos
 
@@ -482,7 +482,7 @@ const selectedId = await select({
     if (isCancel(selectedId) || selectedId === 'none') return null;
     return selectedId;
 }
-    // SUBMÓDULO: GESTIÓN DE PROYECTOS
+// SUBMÓDULO: GESTIÓN DE PROYECTOS
 
 async selectProjectInteractive() {
     const projects = await this.projectsCollection.find().toArray();
@@ -1090,76 +1090,261 @@ async deleteDeliverableWithTransaction() {
     await text({ message: 'Presione ENTER para continuar...' });
 }
 
-    // SUBMÓDULO: GESTIÓN FINANCIERA
+// SUBMÓDULO: GESTIÓN FINANCIERA
 
-    async financesSubMenu() {
-        while (true) {
-            UI.displayHeader('> Modo Freelancer > Gestion Financiera');
+async financesSubMenu() {
+    while (true) {
+        UI.displayHeader('> Modo Freelancer > Gestión Financiera');
 
-            const action = await select({
-                message: 'Operaciones Financieras:',
-                options: [
-                    { value: 'balance', label: 'Balance Financiero por Cliente' },
-                    { value: 'back', label: 'Volver' }
-                ]
-            });
-
-            if (isCancel(action) || action === 'back') break;
-
-            if (action === 'balance') await this.calculateBalanceByClient();
-        }
-    }
-
-    async calculateBalanceByClient() {
-        UI.displayHeader('> Modo Freelancer > Gestion Financiera > Balance Financiero');
-
-        const clientId = await this.selectClientInteractive();
-        if (!clientId) return;
-
-        const spinner = UI.createSpinner('Calculando balance financiero del cliente...').start();
-
-        const client = await this.clientsCollection.findOne({ _id: new ObjectId(clientId) });
-        const transactions = await this.financesCollection.find({ clientId: new ObjectId(clientId) }).toArray();
-
-        let totalIncome = 0;
-        let totalExpense = 0;
-
-        transactions.forEach(t => {
-            const amount = Number(t.amount) || 0;
-            if (t.type === 'ingreso') totalIncome += amount;
-            if (t.type === 'egreso') totalExpense += amount;
+        const action = await select({
+            message: 'Operaciones Financieras:',
+            options: [
+                { value: 'record_acid', label: 'Registrar Ingreso / Egreso' },
+                { value: 'balance_client', label: 'Balance Financiero por Cliente' },
+                { value: 'balance_date', label: 'Balance Financiero por Rango de Fechas' },
+                { value: 'back', label: 'Volver' }
+            ]
         });
 
-        const netBalance = totalIncome - totalExpense;
-        spinner.stop();
+        if (isCancel(action) || action === 'back') break;
 
-        const formattedIncome = chalk.green(`+$${totalIncome.toFixed(2)}`);
-        const formattedExpense = chalk.red(`-$${totalExpense.toFixed(2)}`);
-        const formattedBalance = netBalance >= 0 
-            ? chalk.bold.green(`+$${netBalance.toFixed(2)}`) 
-            : chalk.bold.red(`-$${Math.abs(netBalance).toFixed(2)}`);
-
-        const cardContent = [
-            chalk.bold.cyan('TARJETA DE BALANCE FINANCIERO'),
-            '─'.repeat(45),
-            `Cliente:          ${chalk.bold(client?.name || 'Cliente N/A')}`,
-            `Email:            ${client?.email || 'N/A'}`,
-            '─'.repeat(45),
-            `Total Ingresos:   ${formattedIncome}`,
-            `Total Egresos:    ${formattedExpense}`,
-            '─'.repeat(45),
-            `Balance Neto:     ${formattedBalance}`
-        ].join('\n');
-
-        console.log(
-            boxen(cardContent, {
-                padding: 1,
-                margin: { top: 1, bottom: 1 },
-                borderStyle: 'double',
-                borderColor: 'cyan'
-            })
-        );
-
-        await text({ message: 'Presione ENTER para continuar...' });
+        if (action === 'record_acid') await this.recordTransactionWithACID();
+        if (action === 'balance_client') await this.calculateBalanceByClient();
+        if (action === 'balance_date') await this.calculateBalanceByDate();
     }
 }
+
+async recordTransactionWithACID() {
+    UI.displayHeader('> Modo Freelancer > Gestión Financiera > Registrar Pago (ACID)');
+
+    const projectId = await this.selectProjectInteractive();
+    if (!projectId) return;
+
+    const project = await this.projectsCollection.findOne({ _id: new ObjectId(projectId) });
+    if (!project) return;
+
+    const type = await select({
+        message: 'Tipo de movimiento:',
+        options: [
+            { value: 'ingreso', label: 'Ingreso (+)' },
+            { value: 'egreso', label: 'Egreso (-)' }
+        ]
+    });
+    if (isCancel(type)) return;
+
+    const amountStr = await text({
+        message: 'Monto ($):',
+        validate: val => {
+            const num = Number(val);
+            if (isNaN(num) || num <= 0) return 'Ingrese un monto numérico mayor a 0';
+        }
+    });
+    if (isCancel(amountStr)) return;
+
+    const referenceCode = await text({
+        message: 'Código / Referencia única de transacción (evita duplicados):',
+        validate: val => (!val || val.trim().length === 0) ? 'La referencia es requerida' : undefined
+    });
+    if (isCancel(referenceCode)) return;
+
+    const description = await text({
+        message: 'Descripción o concepto:'
+    });
+    if (isCancel(description)) return;
+
+    const client = Database.getClient();
+    const session = client.startSession();
+
+    let statusText = '';
+    let reasonText = '';
+    let isSuccess = false;
+
+    const spinner = UI.createSpinner('Ejecutando transacción para registrar pago...').start();
+
+    try {
+        session.startTransaction();
+
+        // Verificación de duplicidad dentro de la transacción
+        const existingTx = await this.financesCollection.findOne(
+            { referenceCode: referenceCode.trim() },
+            { session }
+        );
+
+        if (existingTx) {
+            await session.abortTransaction();
+            isSuccess = false;
+            statusText = chalk.red('[ ABORTED / DUPLICADO DETECTADO ]');
+            reasonText = `La referencia '${referenceCode.trim()}' ya fue procesada previamente.`;
+            spinner.fail(chalk.yellow(`${UI.symbols.warning} Transacción abortada por duplicidad.`));
+        } else {
+            const newTransaction = {
+                projectId: new ObjectId(projectId),
+                clientId: project.clientId ? new ObjectId(project.clientId) : null,
+                type,
+                amount: Number(amountStr),
+                referenceCode: referenceCode.trim(),
+                description: description?.trim() || '',
+                createdAt: new Date()
+            };
+
+            await this.financesCollection.insertOne(newTransaction, { session });
+            await session.commitTransaction();
+
+            isSuccess = true;
+            statusText = chalk.green('[ COMMIT / REGISTRO EXITOSO ]');
+            reasonText = 'Transacción financiera registrada correctamente y validada sin duplicados.';
+            spinner.succeed(chalk.green(`${UI.symbols.success} Transacción completada.`));
+        }
+    } catch (error) {
+        await session.abortTransaction();
+        isSuccess = false;
+        statusText = chalk.red('[ ABORTED / ROLLBACK ERROR ]');
+        reasonText = `Excepción en DB: ${error.message}`;
+        spinner.fail(chalk.red(`${UI.symbols.error} Error crítico en la transacción.`));
+    } finally {
+        await session.endSession();
+    }
+
+    const ticketContent = [
+        chalk.bold.cyan('RESULTADO DE OPERACIÓN ATÓMICA FINANCIERA'),
+        '─'.repeat(58),
+        `Status:      ${statusText}`,
+        `Referencia:  ${referenceCode.trim()}`,
+        `Monto:       $${Number(amountStr).toFixed(2)} (${type.toUpperCase()})`,
+        `Razón:       ${reasonText}`,
+        `Integridad:  ${isSuccess ? chalk.green('[ BASE DE DATOS ACTUALIZADA ]') : chalk.yellow('[ BASE DE DATOS PROTEGIDA SIN CAMBIOS ]')}`
+    ].join('\n');
+
+    console.log(
+        boxen(ticketContent, {
+            padding: 1,
+            margin: { top: 1, bottom: 1 },
+            borderStyle: 'round',
+            borderColor: isSuccess ? 'green' : 'red'
+        })
+    );
+
+    await text({ message: 'Presione ENTER para continuar...' });
+}
+
+async calculateBalanceByClient() {
+    UI.displayHeader('> Modo Freelancer > Gestión Financiera > Balance por Cliente');
+
+    const clientId = await this.selectClientInteractive();
+    if (!clientId) return;
+
+    const spinner = UI.createSpinner('Calculando balance financiero del cliente...').start();
+
+    const client = await this.clientsCollection.findOne({ _id: new ObjectId(clientId) });
+    const transactions = await this.financesCollection.find({ clientId: new ObjectId(clientId) }).toArray();
+
+    let totalIncome = 0;
+    let totalExpense = 0;
+
+    transactions.forEach(t => {
+        const amount = Number(t.amount) || 0;
+        if (t.type === 'ingreso') totalIncome += amount;
+        if (t.type === 'egreso') totalExpense += amount;
+    });
+
+    const netBalance = totalIncome - totalExpense;
+    spinner.stop();
+
+    const formattedIncome = chalk.green(`+$${totalIncome.toFixed(2)}`);
+    const formattedExpense = chalk.red(`-$${totalExpense.toFixed(2)}`);
+    const formattedBalance = netBalance >= 0 
+        ? chalk.bold.green(`+$${netBalance.toFixed(2)}`) 
+        : chalk.bold.red(`-$${Math.abs(netBalance).toFixed(2)}`);
+
+    const cardContent = [
+        chalk.bold.cyan('TARJETA DE BALANCE FINANCIERO POR CLIENTE'),
+        '─'.repeat(45),
+        `Cliente:          ${chalk.bold(client?.name || 'Cliente N/A')}`,
+        `Email:            ${client?.email || 'N/A'}`,
+        '─'.repeat(45),
+        `Total Ingresos:   ${formattedIncome}`,
+        `Total Egresos:    ${formattedExpense}`,
+        '─'.repeat(45),
+        `Balance Neto:     ${formattedBalance}`
+    ].join('\n');
+
+    console.log(
+        boxen(cardContent, {
+            padding: 1,
+            margin: { top: 1, bottom: 1 },
+            borderStyle: 'double',
+            borderColor: 'cyan'
+        })
+    );
+
+    await text({ message: 'Presione ENTER para continuar...' });
+}
+
+async calculateBalanceByDate() {
+    UI.displayHeader('> Modo Freelancer > Gestión Financiera > Balance por Fecha');
+
+    const startDateStr = await text({
+        message: 'Fecha de inicio (YYYY-MM-DD):',
+        validate: val => (!val || isNaN(Date.parse(val))) ? 'Ingrese una fecha válida' : undefined
+    });
+    if (isCancel(startDateStr)) return;
+
+    const endDateStr = await text({
+        message: 'Fecha de fin (YYYY-MM-DD):',
+        validate: val => (!val || isNaN(Date.parse(val))) ? 'Ingrese una fecha válida' : undefined
+    });
+    if (isCancel(endDateStr)) return;
+
+    const startDate = new Date(startDateStr.trim());
+    const endDate = new Date(endDateStr.trim());
+    endDate.setHours(23, 59, 59, 999);
+
+    const spinner = UI.createSpinner('Filtrando transacciones por fecha...').start();
+
+    const transactions = await this.financesCollection.find({
+        createdAt: { $gte: startDate, $lte: endDate }
+    }).toArray();
+
+    let totalIncome = 0;
+    let totalExpense = 0;
+
+    transactions.forEach(t => {
+        const amount = Number(t.amount) || 0;
+        if (t.type === 'ingreso') totalIncome += amount;
+        if (t.type === 'egreso') totalExpense += amount;
+    });
+
+    const netBalance = totalIncome - totalExpense;
+    spinner.stop();
+
+    const formattedIncome = chalk.green(`+$${totalIncome.toFixed(2)}`);
+    const formattedExpense = chalk.red(`-$${totalExpense.toFixed(2)}`);
+    const formattedBalance = netBalance >= 0 
+        ? chalk.bold.green(`+$${netBalance.toFixed(2)}`) 
+        : chalk.bold.red(`-$${Math.abs(netBalance).toFixed(2)}`);
+
+    const cardContent = [
+        chalk.bold.cyan('TARJETA DE BALANCE FINANCIERO POR RANGO DE FECHAS'),
+        '─'.repeat(50),
+        `Rango:            ${startDateStr} al ${endDateStr}`,
+        `Transacciones:    ${transactions.length} registradas`,
+        '─'.repeat(50),
+        `Total Ingresos:   ${formattedIncome}`,
+        `Total Egresos:    ${formattedExpense}`,
+        '─'.repeat(50),
+        `Balance Neto:     ${formattedBalance}`
+    ].join('\n');
+
+    console.log(
+        boxen(cardContent, {
+            padding: 1,
+            margin: { top: 1, bottom: 1 },
+            borderStyle: 'double',
+            borderColor: 'cyan'
+        })
+    );
+
+    await text({ message: 'Presione ENTER para continuar...' });
+}
+}
+export default FreelanceMenu;
