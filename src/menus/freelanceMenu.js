@@ -175,3 +175,75 @@ async MainMenu() {
     }
 }
 
+// Submodulo: Gestion de clientes
+
+async clientsSubMenu() {
+    while(true) {
+        UI.displayHeader('> Modo Freelancer > Gestion de Clientes');
+
+        const action = await select({
+            message: 'Operaciones de Clientes:',
+            options: [
+                { value: 'list', label: 'Listar Clientes' },
+                { value: 'create', label: 'Crear nuevo cliente' },
+                { value: 'back', label: 'Volver' }
+            ]
+        });
+
+        if (isCancel(action) || action === 'back') break;
+
+        if (action === 'list') await this.listClients();
+        if (action === 'create') await this.createClient();
+    }
+}
+
+async listClients() {
+    UI.displayHeader('> Modo Freelancer > Gestion de Clientes > Listar Clientes');
+    const clients = await this.clientsCollection.find().toArray();
+
+    if (!clients.length) {
+        this.renderEmptyStateBox('clientes', 'Utiliza la opcion "Crear nuevo ccliente" para comenzar. ');
+    } else {
+        const headers = ['ID', 'Nombre', 'Email', 'Telefono'];
+        const rows = clients.map(c => [
+            c._id.toString(),
+            c.name || 'N/A',
+            c.email || 'N/A',
+            c.phone || 'N/A'
+        ]);
+        UI.renderTable(headers, rows);
+    }
+
+    await text({ message: "Presione ENTER para continuar.."});
+}
+
+async createClient() {
+    UI.displayHeader('> Modo Freelancer > Gestion de clientes > Crear nuevo cliente');
+
+    const name = await text({
+        message: 'Nombre del Cliente:',
+        validate: val => val.trim().length === 0 ? 'El nombre es requerido' : undefined
+    });
+    if (isCancel(name)) return;
+
+    const email = await text({
+        message: 'Correo Electronico:',
+        validate: val => !validator.isEmail(val) ? 'Ingrese un email valido' : undefined
+    });
+    if (isCanccel(email)) return;
+
+    const phone = await text({ message: 'Telefono (Opcional):'});
+    if (isCancel(phone)) return;
+
+    const spinner = UI.createSpinner('Guardando cliente en base de datos...').start();
+    await this.clientsCollection.insertOne({
+        name,
+        email,
+        phone: phone || 'N/A',
+        createdAT: new Date()
+    });
+    spinner.suceeed(chalk.green(`${UI.symbols.success} Cliente registrado con exito.`));
+
+    await text({ message: "Presion ENTER para continuar..."});
+}
+
