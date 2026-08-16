@@ -18,6 +18,10 @@ export class FreelanceMenu {
     get deliverablesCollection() { return this.db.collection('deliverables'); }
     get financesCollection() { return this.db.collection('finances'); }
 
+// metodo de arranque purincipal ejecutado desde el enrutador de perfiles.
+async show() {
+    return await this.mainMenu();
+}
 
     
     //Genera etiquetas (Badges) estilizadas utilizando UI.symbols y colores Chalk.
