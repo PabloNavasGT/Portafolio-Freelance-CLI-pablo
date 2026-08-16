@@ -811,97 +811,284 @@ async listContracts() {
     await text({ message: 'Presione ENTER para continuar...' });
 }
 
-    // SUBMÓDULO: GESTIÓN DE ENTREGABLES
+// SUBMÓDULO: GESTIÓN DE ENTREGABLES
 
-    async deliverablesSubMenu() {
-        while (true) {
-            UI.displayHeader('> Modo Freelancer > Gestion de Entregables');
+async deliverablesSubMenu() {
+    while (true) {
+        UI.displayHeader('> Modo Freelancer > Gestión de Entregables');
 
-            const action = await select({
-                message: 'Operaciones de Entregables:',
-                options: [
-                    { value: 'delete_acid', label: 'Eliminar Entregable con Transaccion ACID' },
-                    { value: 'back', label: 'Volver' }
-                ]
-            });
+        const action = await select({
+            message: 'Operaciones de Entregables:',
+            options: [
+                { value: 'list', label: 'Listar Entregables' },
+                { value: 'create', label: 'Crear Entregable' },
+                { value: 'update_status_acid', label: 'Cambiar Estado con Transacción ACID (Rollback)' },
+                { value: 'delete_acid', label: 'Eliminar Entregable con Transacción ACID' },
+                { value: 'back', label: 'Volver' }
+            ]
+        });
 
-            if (isCancel(action) || action === 'back') break;
+        if (isCancel(action) || action === 'back') break;
 
-            if (action === 'delete_acid') await this.deleteDeliverableWithTransaction();
-        }
+        if (action === 'list') await this.listDeliverables();
+        if (action === 'create') await this.createDeliverable();
+        if (action === 'update_status_acid') await this.updateStatusWithTransaction();
+        if (action === 'delete_acid') await this.deleteDeliverableWithTransaction();
+    }
+}
+
+async selectDeliverableInteractive() {
+    const deliverables = await this.deliverablesCollection.find().toArray();
+    if (!deliverables.length) {
+        this.renderEmptyStateBox('entregables', 'No hay entregables registrados.');
+        await text({ message: 'Presione ENTER para continuar...' });
+        return null;
     }
 
-    async deleteDeliverableWithTransaction() {
-        UI.displayHeader('> Modo Freelancer > Gestion de Entregables > Eliminacion Atomica ACID');
+    const choices = deliverables.map(d => ({
+        value: d._id.toString(),
+        label: `${d.title} [${d.status.toUpperCase()}] - Límite: ${d.dueDate ? new Date(d.dueDate).toLocaleDateString() : 'N/A'}`
+    }));
 
-        const deliverableId = await this.selectDeliverableInteractive();
-        if (!deliverableId) return;
+    const selectedId = await select({
+        message: 'Seleccione un Entregable:',
+        options: choices
+    });
 
-        const confirmDelete = await confirm({
-            message: `¿Está seguro de ejecutar la eliminación atómica del entregable ID #${deliverableId}?`
-        });
-        if (!confirmDelete || isCancel(confirmDelete)) return;
+    if (isCancel(selectedId)) return null;
+    return selectedId;
+}
 
-        const client = Database.getClient();
-        const session = client.startSession();
+async listDeliverables() {
+    UI.displayHeader('> Modo Freelancer > Gestión de Entregables > Listar Entregables');
+    const deliverables = await this.deliverablesCollection.find().toArray();
 
-        let statusText = '';
-        let reasonText = '';
-        let isSuccess = false;
+    if (!deliverables.length) {
+        this.renderEmptyStateBox('entregables', 'No hay entregables registrados.');
+        await text({ message: 'Presione ENTER para continuar...' });
+        return;
+    }
 
-        const spinner = UI.createSpinner('Ejecutando sesión de transacción atómica ACID...').start();
+    const projects = await this.projectsCollection.find().toArray();
+    const projectMap = new Map(projects.map(p => [p._id.toString(), p.name]));
 
-        try {
-            session.startTransaction();
+    const headers = ['ID', 'Entregable', 'Proyecto', 'Fecha Límite', 'Estado'];
 
-            const deleteResult = await this.deliverablesCollection.deleteOne(
-                { _id: new ObjectId(deliverableId) },
-                { session }
-            );
+    const rows = deliverables.map((d, index) => {
+        const projectName = d.projectId ? (projectMap.get(d.projectId.toString()) || 'Sin proyecto') : 'Sin proyecto';
+        const dueDate = d.dueDate ? new Date(d.dueDate).toLocaleDateString() : 'N/A';
 
-            if (deleteResult.deletedCount === 1) {
-                await session.commitTransaction();
-                isSuccess = true;
-                statusText = chalk.green('[ COMMIT / ELIMINACION EXITOSA ]');
-                reasonText = 'Entregable y referencias desvinculadas correctamente';
-                spinner.succeed(chalk.green(`${UI.symbols.success} Transacción atómica completada.`));
-            } else {
-                await session.abortTransaction();
-                isSuccess = false;
-                statusText = chalk.red('[ ABORTED / ROLLBACK EJECUTADO ]');
-                reasonText = 'Entregable no encontrado o ya desvinculado';
-                spinner.fail(chalk.yellow(`${UI.symbols.warning} Transacción abortada. Aplicando Rollback.`));
-            }
-        } catch (error) {
-            await session.abortTransaction();
-            isSuccess = false;
-            statusText = chalk.red('[ ABORTED / ROLLBACK ERROR ]');
-            reasonText = `Excepción en DB: ${error.message}`;
-            spinner.fail(chalk.red(`${UI.symbols.error} Error crítico en transacción.`));
-        } finally {
-            await session.endSession();
-        }
+        return [
+            `E-${String(index + 1).padStart(3, '0')}`,
+            d.title || 'Sin título',
+            projectName,
+            dueDate,
+            this.getBadge('deliverables', d.status)
+        ];
+    });
 
-        const ticketContent = [
-            chalk.bold.cyan('RESULTADO DE OPERACION ATOMICA (TRANSACTION SESSION)'),
-            '─'.repeat(58),
-            `Status:      ${statusText}`,
-            `Operaciones: Eliminación de Entregable #${deliverableId.substring(0, 10)}...`,
-            `Razón:       ${reasonText}`,
-            `Integridad:  ${isSuccess ? chalk.green('[ BASE DE DATOS ACTUALIZADA ]') : chalk.yellow('[ BASE DE DATOS PROTEGIDA SIN CAMBIOS ]')}`
-        ].join('\n');
+    UI.renderTable(headers, rows);
+    await text({ message: 'Presione ENTER para continuar...' });
+}
 
-        console.log(
-            boxen(ticketContent, {
-                padding: 1,
-                margin: { top: 1, bottom: 1 },
-                borderStyle: 'round',
-                borderColor: isSuccess ? 'green' : 'red'
-            })
+async createDeliverable() {
+    UI.displayHeader('> Modo Freelancer > Gestión de Entregables > Crear Entregable');
+
+    const projectId = await this.selectProjectInteractive();
+    if (!projectId) return;
+
+    const title = await text({
+        message: 'Título del Entregable:',
+        validate: val => (!val || val.trim().length === 0) ? 'El título es requerido' : undefined
+    });
+    if (isCancel(title)) return;
+
+    const dueDate = await text({
+        message: 'Fecha límite (YYYY-MM-DD):',
+        validate: val => (!val || val.trim().length === 0) ? 'La fecha límite es requerida' : undefined
+    });
+    if (isCancel(dueDate)) return;
+
+    const status = await select({
+        message: 'Estado inicial:',
+        options: [
+            { value: 'pendiente', label: 'Pendiente' },
+            { value: 'entregado', label: 'Entregado' },
+            { value: 'aprobado', label: 'Aprobado' },
+            { value: 'rechazado', label: 'Rechazado' }
+        ]
+    });
+    if (isCancel(status)) return;
+
+    const spinner = UI.createSpinner('Guardando entregable...').start();
+
+    const newDeliverable = {
+        title: title.trim(),
+        projectId: new ObjectId(projectId),
+        dueDate: new Date(dueDate.trim()),
+        status,
+        createdAt: new Date()
+    };
+
+    await this.deliverablesCollection.insertOne(newDeliverable);
+    spinner.succeed(chalk.green(`${UI.symbols.success} Entregable creado exitosamente.`));
+
+    await text({ message: 'Presione ENTER para continuar...' });
+}
+
+async updateStatusWithTransaction() {
+    UI.displayHeader('> Modo Freelancer > Gestión de Entregables > Cambio de Estado ACID');
+
+    const deliverableId = await this.selectDeliverableInteractive();
+    if (!deliverableId) return;
+
+    const deliverable = await this.deliverablesCollection.findOne({ _id: new ObjectId(deliverableId) });
+    if (!deliverable) return;
+
+    const newStatus = await select({
+        message: `Estado actual: ${deliverable.status.toUpperCase()}. Seleccione nuevo estado:`,
+        options: [
+            { value: 'pendiente', label: 'Pendiente' },
+            { value: 'entregado', label: 'Entregado' },
+            { value: 'aprobado', label: 'Aprobado' },
+            { value: 'rechazado', label: 'Rechazado' }
+        ]
+    });
+    if (isCancel(newStatus) || newStatus === deliverable.status) return;
+
+    const client = Database.getClient();
+    const session = client.startSession();
+
+    let statusText = '';
+    let reasonText = '';
+    let isSuccess = false;
+
+    const spinner = UI.createSpinner('Ejecutando transacción atómica de actualización...').start();
+
+    try {
+        session.startTransaction();
+
+        const updateResult = await this.deliverablesCollection.updateOne(
+            { _id: new ObjectId(deliverableId) },
+            { $set: { status: newStatus, updatedAt: new Date() } },
+            { session }
         );
 
-        await text({ message: 'Presione ENTER para continuar...' });
+        if (updateResult.modifiedCount === 1) {
+            await session.commitTransaction();
+            isSuccess = true;
+            statusText = chalk.green('[ COMMIT / ACTUALIZACIÓN EXITOSA ]');
+            reasonText = `Estado cambiado exitosamente de ${deliverable.status} a ${newStatus}`;
+            spinner.succeed(chalk.green(`${UI.symbols.success} Transacción atómica completada.`));
+        } else {
+            await session.abortTransaction();
+            isSuccess = false;
+            statusText = chalk.red('[ ABORTED / ROLLBACK EJECUTADO ]');
+            reasonText = 'No se pudo actualizar el registro en la base de datos';
+            spinner.fail(chalk.yellow(`${UI.symbols.warning} Transacción abortada. Aplicando Rollback.`));
+        }
+    } catch (error) {
+        await session.abortTransaction();
+        isSuccess = false;
+        statusText = chalk.red('[ ABORTED / ROLLBACK ERROR ]');
+        reasonText = `Excepción en DB: ${error.message}`;
+        spinner.fail(chalk.red(`${UI.symbols.error} Error crítico en transacción.`));
+    } finally {
+        await session.endSession();
     }
+
+    const ticketContent = [
+        chalk.bold.cyan('RESULTADO DE OPERACIÓN ATÓMICA (TRANSACTION SESSION)'),
+        '─'.repeat(58),
+        `Status:      ${statusText}`,
+        `Operación:   Cambio de Estado Entregable #${deliverableId.substring(0, 10)}...`,
+        `Razón:       ${reasonText}`,
+        `Integridad:  ${isSuccess ? chalk.green('[ BASE DE DATOS ACTUALIZADA ]') : chalk.yellow('[ BASE DE DATOS PROTEGIDA SIN CAMBIOS ]')}`
+    ].join('\n');
+
+    console.log(
+        boxen(ticketContent, {
+            padding: 1,
+            margin: { top: 1, bottom: 1 },
+            borderStyle: 'round',
+            borderColor: isSuccess ? 'green' : 'red'
+        })
+    );
+
+    await text({ message: 'Presione ENTER para continuar...' });
+}
+
+async deleteDeliverableWithTransaction() {
+    UI.displayHeader('> Modo Freelancer > Gestion de Entregables > Eliminación Atómica ACID');
+
+    const deliverableId = await this.selectDeliverableInteractive();
+    if (!deliverableId) return;
+
+    const confirmDelete = await confirm({
+        message: `¿Está seguro de ejecutar la eliminación atómica del entregable ID #${deliverableId}?`
+    });
+    if (!confirmDelete || isCancel(confirmDelete)) return;
+
+    const client = Database.getClient();
+    const session = client.startSession();
+
+    let statusText = '';
+    let reasonText = '';
+    let isSuccess = false;
+
+    const spinner = UI.createSpinner('Ejecutando sesión de transacción atómica ACID...').start();
+
+    try {
+        session.startTransaction();
+
+        const deleteResult = await this.deliverablesCollection.deleteOne(
+            { _id: new ObjectId(deliverableId) },
+            { session }
+        );
+
+        if (deleteResult.deletedCount === 1) {
+            await session.commitTransaction();
+            isSuccess = true;
+            statusText = chalk.green('[ COMMIT / ELIMINACIÓN EXITOSA ]');
+            reasonText = 'Entregable eliminado correctamente';
+            spinner.succeed(chalk.green(`${UI.symbols.success} Transacción atómica completada.`));
+        } else {
+            await session.abortTransaction();
+            isSuccess = false;
+            statusText = chalk.red('[ ABORTED / ROLLBACK EJECUTADO ]');
+            reasonText = 'Entregable no encontrado';
+            spinner.fail(chalk.yellow(`${UI.symbols.warning} Transacción abortada. Aplicando Rollback.`));
+        }
+    } catch (error) {
+        await session.abortTransaction();
+        isSuccess = false;
+        statusText = chalk.red('[ ABORTED / ROLLBACK ERROR ]');
+        reasonText = `Excepción en DB: ${error.message}`;
+        spinner.fail(chalk.red(`${UI.symbols.error} Error crítico en transacción.`));
+    } finally {
+        await session.endSession();
+    }
+
+    const ticketContent = [
+        chalk.bold.cyan('RESULTADO DE OPERACIÓN ATÓMICA (TRANSACTION SESSION)'),
+        '─'.repeat(58),
+        `Status:      ${statusText}`,
+        `Operación:   Eliminación de Entregable #${deliverableId.substring(0, 10)}...`,
+        `Razón:       ${reasonText}`,
+        `Integridad:  ${isSuccess ? chalk.green('[ BASE DE DATOS ACTUALIZADA ]') : chalk.yellow('[ BASE DE DATOS PROTEGIDA SIN CAMBIOS ]')}`
+    ].join('\n');
+
+    console.log(
+        boxen(ticketContent, {
+            padding: 1,
+            margin: { top: 1, bottom: 1 },
+            borderStyle: 'round',
+            borderColor: isSuccess ? 'green' : 'red'
+        })
+    );
+
+    await text({ message: 'Presione ENTER para continuar...' });
+}
 
     // SUBMÓDULO: GESTIÓN FINANCIERA
 
