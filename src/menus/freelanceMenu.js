@@ -193,6 +193,8 @@ async show() {
                 options: [
                     { value: 'list', label: 'Listar Clientes' },
                     { value: 'create', label: 'Crear Nuevo Cliente' },
+                    { value: 'update', label: 'Actualizar Cliente' },
+                    { value: 'delete', label: 'Eliminar Cliente' },
                     { value: 'back', label: 'Volver' }
                 ]
             });
@@ -201,6 +203,8 @@ async show() {
 
             if (action === 'list') await this.listClients();
             if (action === 'create') await this.createClient();
+            if (action === 'update') await this.updateClient();
+            if (action === 'delete') await this.deleteClient();
         }
     }
 
@@ -250,6 +254,101 @@ async show() {
             createdAt: new Date()
         });
         spinner.succeed(chalk.green(`${UI.symbols.success} Cliente registrado con éxito.`));
+
+        await text({ message: 'Presione ENTER para continuar...' });
+    }
+
+    async updateClient() {
+        UI.displayHeader('> Modo Freelancer > Gestion de Clientes > Actualizar Cliente');
+
+        const clientId = await this.selectClientInteractive();
+        if (!clientId) return;
+
+        const name = await text({ message: 'Nuevo Nombre del Cliente (Dejar en blanco para mantener actual):' });
+        if (isCancel(name)) return;
+
+        const email = await text({
+            message: 'Nuevo Correo Electrónico (Dejar en blanco para mantener actual):',
+            validate: val => (val.trim() && !validator.isEmail(val)) ? 'Ingrese un email válido' : undefined
+        });
+        if (isCancel(email)) return;
+
+        const phone = await text({ message: 'Nuevo Teléfono (Dejar en blanco para mantener actual):' });
+        if (isCancel(phone)) return;
+
+        const updateData = {};
+        if (name.trim()) updateData.name = name.trim();
+        if (email.trim()) updateData.email = email.trim();
+        if (phone.trim()) updateData.phone = phone.trim();
+
+        if (Object.keys(updateData).length === 0) {
+            await text({ message: 'No se realizaron cambios. Presione ENTER para continuar...' });
+            return;
+        }
+
+        updateData.updatedAt = new Date();
+
+        const spinner = UI.createSpinner('Actualizando información del cliente...').start();
+        await this.clientsCollection.updateOne(
+            { _id: new ObjectId(clientId) },
+            { $set: updateData }
+        );
+        spinner.succeed(chalk.green(`${UI.symbols.success} Cliente actualizado con éxito.`));
+
+        await text({ message: 'Presione ENTER para continuar...' });
+    }
+
+    async deleteClient() {
+        UI.displayHeader('> Modo Freelancer > Gestion de Clientes > Eliminar Cliente');
+
+        const clientId = await this.selectClientInteractive();
+        if (!clientId) return;
+
+        const confirmDelete = await confirm({
+            message: '¿Está seguro de que desea eliminar este cliente?'
+        });
+        if (!confirmDelete || isCancel(confirmDelete)) return;
+
+        const spinner = UI.createSpinner('Eliminando cliente de la base de datos...').start();
+        await this.clientsCollection.deleteOne({ _id: new ObjectId(clientId) });
+        spinner.succeed(chalk.green(`${UI.symbols.success} Cliente eliminado con éxito.`));
+
+        await text({ message: 'Presione ENTER para continuar...' });
+    }
+
+    async proposalsSubMenu() {
+        while (true) {
+            UI.displayHeader('> Modo Freelancer > Gestion de Propuestas');
+
+            const action = await select({
+                message: 'Operaciones de Propuestas:',
+                options: [
+                    { value: 'list', label: 'Listar Propuestas' },
+                    { value: 'back', label: 'Volver' }
+                ]
+            });
+
+            if (isCancel(action) || action === 'back') break;
+
+            if (action === 'list') await this.listProposals();
+        }
+    }
+
+    async listProposals() {
+        UI.displayHeader('> Modo Freelancer > Gestion de Propuestas > Listar Propuestas');
+        const proposals = await this.proposalsCollection.find().toArray();
+
+        if (!proposals.length) {
+            this.renderEmptyStateBox('propuestas', 'No existen propuestas registradas actualmente.');
+        } else {
+            const headers = ['ID', 'Título / Nombre', 'Estado'];
+            const rows = proposals.map(pr => [
+                pr._id.toString(),
+                pr.title || pr.name || 'Sin título',
+                this.getBadge('proposals', pr.status)
+            ]);
+            UI.renderTable(headers, rows);
+        }
 
         await text({ message: 'Presione ENTER para continuar...' });
     }
