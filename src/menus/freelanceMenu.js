@@ -18,13 +18,12 @@ export class FreelanceMenu {
     get deliverablesCollection() { return this.db.collection('deliverables'); }
     get financesCollection() { return this.db.collection('finances'); }
 
-// metodo de arranque purincipal ejecutado desde el enrutador de perfiles.
-async show() {
-    return await this.mainMenu();
-}
+    // Método de arranque principal
+    async show() {
+        return await this.mainMenu();
+    }
 
-    
-    //Genera etiquetas (Badges) estilizadas utilizando UI.symbols y colores Chalk.
+    // Genera etiquetas (Badges) estilizadas
     getBadge(category, status) {
         const st = status || '';
         switch (category) {
@@ -58,8 +57,7 @@ async show() {
         }
     }
 
-    
-    //Renderiza una barra de progreso gráfica ASCII dentro de celdas de tabla.
+    // Renderiza una barra de progreso gráfica ASCII
     renderInlineProgressBar(percentage = 0, length = 10) {
         const validPercent = Math.min(100, Math.max(0, Number(percentage) || 0));
         const filledLength = Math.round((validPercent / 100) * length);
@@ -71,8 +69,7 @@ async show() {
         return `[${filledBar}${emptyBar}] ${chalk.bold(validPercent)}%`;
     }
 
-    
-    //Imprime cajas estilizadas con boxen cuando una colección no contiene registros.
+    // Imprime cajas estilizadas cuando una colección está vacía
     renderEmptyStateBox(entityName, actionTip) {
         const message = `${UI.symbols.warning} ${chalk.yellow('No existen ' + entityName + ' registrados actualmente.')}\n${chalk.gray(actionTip)}`;
         console.log(
@@ -86,8 +83,8 @@ async show() {
         );
     }
 
-    
-    //Carga dinámica de documentos y menú interactivo de selección (Select) para Clientes.
+    // SELECTORES INTERACTIVOS
+
     async selectClientInteractive() {
         const clients = await this.clientsCollection.find().toArray();
         if (!clients.length) {
@@ -108,8 +105,6 @@ async show() {
         return isCancel(selectedId) ? null : selectedId;
     }
 
-    
-    //Carga dinámica y menú interactivo de selección (Select) para Proyectos
     async selectProjectInteractive() {
         const projects = await this.projectsCollection.find().toArray();
         if (!projects.length) {
@@ -130,8 +125,6 @@ async show() {
         return isCancel(selectedId) ? null : selectedId;
     }
 
-    
-    //Carga dinámica y menú interactivo de selección (Select) para Entregables.
     async selectDeliverableInteractive() {
         const deliverables = await this.deliverablesCollection.find().toArray();
         if (!deliverables.length) {
@@ -152,11 +145,30 @@ async show() {
         return isCancel(selectedId) ? null : selectedId;
     }
 
-    //Menú Principal del Modo Freelancer
-    
+    async selectProposalInteractive() {
+        const proposals = await this.proposalsCollection.find().toArray();
+        if (!proposals.length) {
+            this.renderEmptyStateBox('propuestas', 'Crea una propuesta primero.');
+            return null;
+        }
+
+        const choices = proposals.map(p => ({
+            value: p._id.toString(),
+            label: `${p.title || 'Sin título'} - $${p.price || 0} - ${this.getBadge('proposals', p.status)}`
+        }));
+
+        const selectedId = await select({
+            message: 'Seleccione una Propuesta de la lista:',
+            options: choices
+        });
+
+        return isCancel(selectedId) ? null : selectedId;
+    }
+
+    // MENÚ PRINCIPAL
+
     async mainMenu() {
         while (true) {
-            // Ruta de Navegación (Breadcrumbs)
             UI.displayHeader('> Modo Freelancer > Menu Principal');
 
             const option = await select({
@@ -183,7 +195,8 @@ async show() {
         }
     }
 
-    // submodulo: gestion de clientes
+    // SUBMÓDULO: GESTIÓN DE CLIENTES
+
     async clientsSubMenu() {
         while (true) {
             UI.displayHeader('> Modo Freelancer > Gestion de Clientes');
@@ -316,8 +329,9 @@ async show() {
         await text({ message: 'Presione ENTER para continuar...' });
     }
 
-    // submodulo gestion de propuestas
- async proposalsSubMenu() {
+    // SUBMÓDULO: GESTIÓN DE PROPUESTAS
+
+    async proposalsSubMenu() {
         while (true) {
             UI.displayHeader('> Modo Freelancer > Gestion de Propuestas');
 
@@ -337,26 +351,6 @@ async show() {
             if (action === 'create') await this.createProposal();
             if (action === 'change_status') await this.changeProposalStatus();
         }
-    }
-
-    async selectProposalInteractive() {
-        const proposals = await this.proposalsCollection.find().toArray();
-        if (!proposals.length) {
-            this.renderEmptyStateBox('propuestas', 'Crea una propuesta primero.');
-            return null;
-        }
-
-        const choices = proposals.map(p => ({
-            value: p._id.toString(),
-            label: `${p.title || 'Sin título'} - $${p.price || 0} - ${this.getBadge('proposals', p.status)}`
-        }));
-
-        const selectedId = await select({
-            message: 'Seleccione una Propuesta de la lista:',
-            options: choices
-        });
-
-        return isCancel(selectedId) ? null : selectedId;
     }
 
     async listProposals() {
@@ -544,7 +538,168 @@ async show() {
 
         await text({ message: 'Presione ENTER para continuar...' });
     }
-    // submodulo: gestion financiera
+
+    // SUBMÓDULO: GESTIÓN DE PROYECTOS
+
+    async projectsSubMenu() {
+        while (true) {
+            UI.displayHeader('> Modo Freelancer > Gestion de Proyectos');
+
+            const action = await select({
+                message: 'Operaciones de Proyectos:',
+                options: [
+                    { value: 'list', label: 'Listar Proyectos (Con Progreso Visual)' },
+                    { value: 'update_progress', label: 'Actualizar Avance de Proyecto' },
+                    { value: 'back', label: 'Volver' }
+                ]
+            });
+
+            if (isCancel(action) || action === 'back') break;
+
+            if (action === 'list') await this.listProjects();
+            if (action === 'update_progress') await this.updateProjectProgress();
+        }
+    }
+
+    async listProjects() {
+        UI.displayHeader('> Modo Freelancer > Gestion de Proyectos > Listar Proyectos');
+        const projects = await this.projectsCollection.find().toArray();
+
+        if (!projects.length) {
+            this.renderEmptyStateBox('proyectos', 'Utiliza la opción de registro de proyectos para vincular uno nuevo.');
+        } else {
+            const headers = ['ID Proyecto', 'Nombre', 'Estado', 'Progreso de Avance'];
+            const rows = projects.map(pr => [
+                pr._id.toString(),
+                pr.name || 'Sin título',
+                this.getBadge('projects', pr.status),
+                this.renderInlineProgressBar(pr.progress || 0, 12)
+            ]);
+            UI.renderTable(headers, rows);
+        }
+
+        await text({ message: 'Presione ENTER para continuar...' });
+    }
+
+    async updateProjectProgress() {
+        UI.displayHeader('> Modo Freelancer > Gestion de Proyectos > Actualizar Avance');
+
+        const projectId = await this.selectProjectInteractive();
+        if (!projectId) return;
+
+        const newProgress = await text({
+            message: 'Ingrese el nuevo porcentaje de avance (0 - 100):',
+            validate: val => {
+                const num = Number(val);
+                if (isNaN(num) || num < 0 || num > 100) return 'Ingrese un número válido entre 0 y 100';
+            }
+        });
+        if (isCancel(newProgress)) return;
+
+        const spinner = UI.createSpinner('Actualizando estado del proyecto...').start();
+        await this.projectsCollection.updateOne(
+            { _id: new ObjectId(projectId) },
+            { $set: { progress: Number(newProgress), updatedAt: new Date() } }
+        );
+        spinner.succeed(chalk.green(`${UI.symbols.success} Avance de proyecto actualizado correctamente.`));
+
+        await text({ message: 'Presione ENTER para continuar...' });
+    }
+
+    // SUBMÓDULO: GESTIÓN DE ENTREGABLES
+
+    async deliverablesSubMenu() {
+        while (true) {
+            UI.displayHeader('> Modo Freelancer > Gestion de Entregables');
+
+            const action = await select({
+                message: 'Operaciones de Entregables:',
+                options: [
+                    { value: 'delete_acid', label: 'Eliminar Entregable con Transaccion ACID' },
+                    { value: 'back', label: 'Volver' }
+                ]
+            });
+
+            if (isCancel(action) || action === 'back') break;
+
+            if (action === 'delete_acid') await this.deleteDeliverableWithTransaction();
+        }
+    }
+
+    async deleteDeliverableWithTransaction() {
+        UI.displayHeader('> Modo Freelancer > Gestion de Entregables > Eliminacion Atomica ACID');
+
+        const deliverableId = await this.selectDeliverableInteractive();
+        if (!deliverableId) return;
+
+        const confirmDelete = await confirm({
+            message: `¿Está seguro de ejecutar la eliminación atómica del entregable ID #${deliverableId}?`
+        });
+        if (!confirmDelete || isCancel(confirmDelete)) return;
+
+        const client = Database.getClient();
+        const session = client.startSession();
+
+        let statusText = '';
+        let reasonText = '';
+        let isSuccess = false;
+
+        const spinner = UI.createSpinner('Ejecutando sesión de transacción atómica ACID...').start();
+
+        try {
+            session.startTransaction();
+
+            const deleteResult = await this.deliverablesCollection.deleteOne(
+                { _id: new ObjectId(deliverableId) },
+                { session }
+            );
+
+            if (deleteResult.deletedCount === 1) {
+                await session.commitTransaction();
+                isSuccess = true;
+                statusText = chalk.green('[ COMMIT / ELIMINACION EXITOSA ]');
+                reasonText = 'Entregable y referencias desvinculadas correctamente';
+                spinner.succeed(chalk.green(`${UI.symbols.success} Transacción atómica completada.`));
+            } else {
+                await session.abortTransaction();
+                isSuccess = false;
+                statusText = chalk.red('[ ABORTED / ROLLBACK EJECUTADO ]');
+                reasonText = 'Entregable no encontrado o ya desvinculado';
+                spinner.fail(chalk.yellow(`${UI.symbols.warning} Transacción abortada. Aplicando Rollback.`));
+            }
+        } catch (error) {
+            await session.abortTransaction();
+            isSuccess = false;
+            statusText = chalk.red('[ ABORTED / ROLLBACK ERROR ]');
+            reasonText = `Excepción en DB: ${error.message}`;
+            spinner.fail(chalk.red(`${UI.symbols.error} Error crítico en transacción.`));
+        } finally {
+            await session.endSession();
+        }
+
+        const ticketContent = [
+            chalk.bold.cyan('RESULTADO DE OPERACION ATOMICA (TRANSACTION SESSION)'),
+            '─'.repeat(58),
+            `Status:      ${statusText}`,
+            `Operaciones: Eliminación de Entregable #${deliverableId.substring(0, 10)}...`,
+            `Razón:       ${reasonText}`,
+            `Integridad:  ${isSuccess ? chalk.green('[ BASE DE DATOS ACTUALIZADA ]') : chalk.yellow('[ BASE DE DATOS PROTEGIDA SIN CAMBIOS ]')}`
+        ].join('\n');
+
+        console.log(
+            boxen(ticketContent, {
+                padding: 1,
+                margin: { top: 1, bottom: 1 },
+                borderStyle: 'round',
+                borderColor: isSuccess ? 'green' : 'red'
+            })
+        );
+
+        await text({ message: 'Presione ENTER para continuar...' });
+    }
+
+    // SUBMÓDULO: GESTIÓN FINANCIERA
+
     async financesSubMenu() {
         while (true) {
             UI.displayHeader('> Modo Freelancer > Gestion Financiera');
@@ -586,7 +741,6 @@ async show() {
         const netBalance = totalIncome - totalExpense;
         spinner.stop();
 
-        // Tarjeta resumen formateada con Boxen
         const formattedIncome = chalk.green(`+$${totalIncome.toFixed(2)}`);
         const formattedExpense = chalk.red(`-$${totalExpense.toFixed(2)}`);
         const formattedBalance = netBalance >= 0 
