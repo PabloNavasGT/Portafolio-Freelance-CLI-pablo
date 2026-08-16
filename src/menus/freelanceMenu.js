@@ -539,6 +539,31 @@ export class FreelanceMenu {
         await text({ message: 'Presione ENTER para continuar...' });
     }
 
+
+// selectores interactivos auxiliares
+
+async selectContractInteractive() {
+        const contracts = await this.contractsCollection.find().toArray();
+        if (!contracts.length) {
+            return null;
+        }
+
+        const choices = [
+            { value: 'none', label: 'Sin contrato vinculado' },
+            ...contracts.map(c => ({
+                value: c._id.toString(),
+                label: `Contrato: ${c.title || c.code || c._id.toString()}`
+            }))
+        ];
+
+        const selectedId = await select({
+            message: 'Seleccione un Contrato para vincular (Opcional):',
+            options: choices
+        });
+
+        if (isCancel(selectedId) || selectedId === 'none') return null;
+        return selectedId;
+    }
     // SUBMÓDULO: GESTIÓN DE PROYECTOS
 
 async projectsSubMenu() {
