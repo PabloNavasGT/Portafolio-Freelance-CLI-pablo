@@ -415,3 +415,77 @@ console.log(
 
 await text({ message: 'Presion ENTER para continuar...'});
 }
+
+// Submodulo: Gestion Financiera
+
+async financesSubMenu() {
+        while (true) {
+            UI.displayHeader('> Modo Freelancer > Gestion Financiera');
+
+            const action = await select({
+                message: 'Operaciones Financieras:',
+                options: [
+                    { value: 'balance', label: 'Balance Financiero por Cliente' },
+                    { value: 'back', label: 'Volver' }
+                ]
+            });
+
+            if (isCancel(action) || action === 'back') break;
+
+            if (action === 'balance') await this.calculateBalanceByClient();
+        }
+    }
+
+    async calculateBalanceByClient() {
+        UI.displayHeader('> Modo Freelancer > Gestion Financiera > Balance Financiero');
+
+        const clientId = await this.selectClientInteractive();
+        if (!clientId) return;
+
+        const spinner = UI.createSpinner('Calculando balance financiero del cliente...').start();
+
+        const client = await this.clientsCollection.findOne({ _id: new ObjectId(clientId) });
+        const transactions = await this.financesCollection.find({ clientId: new ObjectId(clientId) }).toArray();
+
+        let totalIncome = 0;
+        let totalExpense = 0;
+
+        transactions.forEach(t => {
+            const amount = Number(t.amount) || 0;
+            if (t.type === 'ingreso') totalIncome += amount;
+            if (t.type === 'egreso') totalExpense += amount;
+        });
+
+        const netBalance = totalIncome - totalExpense;
+        spinner.stop();
+
+        // Tarjeta resumen formateada con Boxen
+        const formattedIncome = chalk.green(`+$${totalIncome.toFixed(2)}`);
+        const formattedExpense = chalk.red(`-$${totalExpense.toFixed(2)}`);
+        const formattedBalance = netBalance >= 0 
+            ? chalk.bold.green(`+$${netBalance.toFixed(2)}`) 
+            : chalk.bold.red(`-$${Math.abs(netBalance).toFixed(2)}`);
+
+        const cardContent = [
+            chalk.bold.cyan('TARJETA DE BALANCE FINANCIERO'),
+            '─'.repeat(45),
+            `Cliente:          ${chalk.bold(client?.name || 'Cliente N/A')}`,
+            `Email:            ${client?.email || 'N/A'}`,
+            '─'.repeat(45),
+            `Total Ingresos:   ${formattedIncome}`,
+            `Total Egresos:    ${formattedExpense}`,
+            '─'.repeat(45),
+            `Balance Neto:     ${formattedBalance}`
+        ].join('\n');
+
+        console.log(
+            boxen(cardContent, {
+                padding: 1,
+                margin: { top: 1, bottom: 1 },
+                borderStyle: 'double',
+                borderColor: 'cyan'
+            })
+        );
+
+        await text({ message: 'Presione ENTER para continuar...' });
+    }
