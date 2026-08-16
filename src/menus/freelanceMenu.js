@@ -305,3 +305,113 @@ async updateProjectProgress() {
     await text({ message: 'Presione ENTER para continuar...'});
 }
 
+// Submodulo: Gestion de entregables (Operaciones Atomicas / ACID)
+
+async deliverablesSubMenu() {
+    while (true) {
+        UI.displayHeader('> Modo Freelancer > Gestion de entregables');
+
+        const action = await select({
+            message: 'Operaciones de Entregables:',
+            options: [
+                { value: 'delete_acid', label: 'Eliminar Entregable'},
+                { value: 'back', label: 'Volver' }
+            ]
+        });
+
+        if (isCancel(action) || action === 'back') break;
+
+        if (action === 'delete_acid') await this.deleteDeliverableWithTransaction();
+    }
+}
+
+async deliverablesSubMenu() {
+        while (true) {
+            UI.displayHeader('> Modo Freelancer > Gestion de Entregables');
+
+            const action = await select({
+                message: 'Operaciones de Entregables:',
+                options: [
+                    { value: 'delete_acid', label: 'Eliminar Entregable con Transaccion ACID' },
+                    { value: 'back', label: 'Volver' }
+                ]
+            });
+
+            if (isCancel(action) || action === 'back') break;
+
+            if (action === 'delete_acid') await this.deleteDeliverableWithTransaction();
+        }
+    }
+
+async deleteDeliverableWithTransaction() {
+    UI.displayHeader('> Modo Freelancer > Gestion de Entregables > Eliminacion Atomica ACID');
+
+    const deliverableId = await this.selectDeliverableInteractive();
+    if (!deliverableId) return;
+
+    const confirmDelete = await confirm({
+        message: `¿Está seguro de ejecutar la eliminación atómica del entregable ID #${deliverableId}?`
+        });
+        if (!confirmDelete || isCancel(confirmDelete)) return;
+
+        const client = Database.getClient();
+        const session = client.startSession();
+
+        let statusText = '';
+        let reasonText = '';
+        let isSuccess = false;
+
+        const spinner = UI.createSpinner('Ejecutando sesión de transacción atómica ACID...').start();
+
+    try {
+        session.startTransaction();
+
+        const deleteResult = await this.deliverablesCollection.deleteOne(
+            { _id: new ObjectId(deliverableId) },
+            { session }
+        );
+
+        if (deleteResult.deletedCount === 1) {
+            await session.commitTransaction();
+            isSuccess = true;
+            statusText = chalk.green('[ COMMIT / ELIMINACION EXITOSA ]');
+            reasonText = 'Entregable y referencias desvinculadas correctamente';
+            spinner.succeed(chalk.green(`${UI.symbols.success} Transacción atómica completada.`));
+            } else {
+                await session.abortTransaction();
+                isSuccess = false;
+                statusText = chalk.red('[ ABORTED / ROLLBACK EJECUTADO ]');
+                reasonText = 'Entregable no encontrado o ya desvinculado';
+                spinner.fail(chalk.yellow(`${UI.symbols.warning} Transacción abortada. Aplicando Rollback.`));
+            }
+        } catch (error) {
+            await session.abortTransaction();
+            isSuccess = false;
+            statusText = chalk.red('[ ABORTED / ROLLBACK ERROR ]');
+            reasonText = `Excepción en DB: ${error.message}`;
+            spinner.fail(chalk.red(`${UI.symbols.error} Error crítico en transacción.`));
+        } finally {
+            await session.endSession();
+        }
+
+// Ticket visual de transaccion impreso con Boxen
+const ticketContent = [
+    chalk.bold.cyan('RESULTADO DE OPERACION (TRANSACTION SESION)'),
+    '-'.repeat(58),
+    `Status:        ${statusText}`,
+    `Operaciones: Eliminacion de Entregable #${deliverableId.substring(0, 10)}...`,
+    `Razon:         ${reasonText}`,
+    `Integridad:    ${isSuccess ? chalk.green('[ BASE DE DATOS ACTUALIZADA ]') : chalk.yellow('[ BASE DE DATOS PROTEGIDA SIN CAMBIOS ]')}`
+].join('\n');
+
+console.log(
+    boxen(ticketContent, {
+        padding: 1,
+        margin: { top: 1. bottom: 1 },
+        boderStyle: 'round',
+        boderColor: isSuccess ? 'green' : 'red'
+    })
+);
+
+await text({ message: 'Presion ENTER para continuar...'});
+}
