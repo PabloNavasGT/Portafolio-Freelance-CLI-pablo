@@ -1,762 +1,491 @@
-// Selección interactiva y captura de datos en la consola mediante @clack/prompts[cite: 3]
-import { select, text, password, confirm, note, isCancel } from '@clack/prompts';
-// Formato de texto y validación de formatos[cite: 3]
+import { select, text, confirm, isCancel } from '@clack/promts';
 import chalk from 'chalk';
+import boxen from 'boxen';
 import validator from 'validator';
 import { ObjectId } from 'mongodb';
 
-// Configuración centralizada de base de datos y utilidades visuales
+// Configuracion centralizada de base de datos y utilizades visyales 
 import Database from '../config/db.js';
 import { UI } from '../utils/ui.js';
 
-
-//Submenú completo para las operaciones del Freelancer (Administración total de la plataforma).
-
 export class FreelanceMenu {
-    // Getters para acceder a las colecciones de MongoDB
+    //Accesores de base de datos (MongoDB Collections)
+
     get db() { return Database.getDb(); }
-    get clientsCollection() { return this.db.collection('clients'); }
+    get clientsCollection() {return this.db.collection('clients'); }
     get proposalsCollection() { return this.db.collection('proposals'); }
     get projectsCollection() { return this.db.collection('projects'); }
     get contractsCollection() { return this.db.collection('contracts'); }
-    get deliverablesCollection() { return this.db.collection('deliverables'); }
-    get financesCollection() { return this.db.collection('finances'); }
+    get deliverblesCollection() { return this.db.collection('deliverables'); }
+    get financesCollection() { return this.db.collection('finances') }
 
-    //Bucle del menú interactivo con los 6 módulos requeridos para el Freelancer.
-    async show() {
-        let inSubmenu = true;
+    // Genera etiquetas (Badges) estilizandos utilizando UI.symbols y colores chalk.
 
-        while (inSubmenu) {
-            UI.displayHeader('Panel de Control - Modo Freelancer');
-
-            // Selección del módulo a administrar mediante @clack/prompts[cite: 3]
-            const option = await select({
-                message: 'Selecciona el módulo a gestionar:',
-                options: [
-                    { value: 'clients', label: `${UI.icons.bullet} 1. Gestión de Clientes (CRUD y Asociación)` },
-                    { value: 'proposals', label: `${UI.icons.bullet} 2. Gestión de Propuestas (Crear y Auto-generar Proyecto)` },
-                    { value: 'projects', label: `${UI.icons.bullet} 3. Gestión de Proyectos (CRUD, Estados y Avances)` },
-                    { value: 'contracts', label: `${UI.icons.bullet} 4. Contratos (Asociación, Valores y Fechas)` },
-                    { value: 'deliverables', label: `${UI.icons.bullet} 5. Entregables (Estados y Rollback con Transacciones)` },
-                    { value: 'finances', label: `${UI.icons.bullet} 6. Gestión Financiera (Ingresos/Egresos, Balances y Pagos)` },
-                    { value: 'back', label: `${UI.icons.arrowLeft} 7. Volver al menú principal` }
-                ]
-            });
-
-            if (isCancel(option) || option === 'back') {
-                inSubmenu = false;
-                break;
-            }
-
-            await this.handleOption(option);
-        }
-    }
-
-    
-    //Deriva la ejecución al módulo correspondiente.
-    
-    async handleOption(option) {
-        switch (option) {
-            case 'clients':
-                await this.clientsModule();
-                break;
+    getBadge(category, status) {
+        const st = status || '';
+        switch (category) {
             case 'proposals':
-                await this.proposalsModule();
-                break;
+                if (st === 'pendiente') return chalk.yellow(`${UI.symbols.warning} [ PENDIENTE ]`);
+                if (st === 'aceptada') return chalk.green(`${UI.symbols.success} [ ACEPTADA ]`);
+                if (st === 'rechazada') return chalk.red(`${UI.symbols.error} [ RECHAZADA ]`);
+                return chalk.gray(`[ S${st} ]`);
+
             case 'projects':
-                await this.projectsModule();
-                break;
-            case 'contracts':
-                await this.contractsModule();
-                break;
+                if (st === 'activo') return chalk.green(`${UI.symbols.info} [ ACTIVO ]`);
+                if (st === 'pausado') return chalk.yellow(`${UI.symbols.warning} [ PAUSADO ]`);
+                if (st === 'finalizado') return chalk.blue(`${UI.symbols.success} [ FINALIZADO ]`);
+                if (st === 'cancelado') return chalk.red(`${UI.symbols.error} [ CANCELADO ]`);
+                return chalk.gray(`[ ${st} ]`);
+
             case 'deliverables':
-                await this.deliverablesModule();
-                break;
+                if (st === 'pendiente') return chalk.white(`${UI.symbols.warning} [ PENDIENTE ]`);
+                if (st === 'entregado') return chalk.yellow(`${UI.symbols.info} [ ENTREGADO ]`);
+                if (st === 'aprobado') return chalk.green(`${UI.symbols.success} [ APROBADO ]`);
+                if (st === 'rechazado') return chalk.red(`${UI.symbols.error} [ RECHAZADO ]`);
+                return chalk.gray(`[ ${st} ]`);
+
             case 'finances':
-                await this.financesModule();
-                break;
+                if (st === 'ingreso') return chalk.green(`${UI.symbols.success} [ INGRESO (+) ]`);
+                if (st === 'egreso') return chalk.red(`${UI.symbols.error} [ EGRESO (-) ]`);
+                return chalk.gray(`[ ${st} `);
+
+            default:
+                return chalk.gray(`[ ${st || 'N/A'} ]`);
         }
     }
 
-    // 1. GESTIÓN DE CLIENTES
-    async clientsModule() {
-        UI.displayHeader('1. Gestión de Clientes');
+    // Renderiza una barra de progreso grafica ASCII dentro de las celdas de tabla.
+
+    renderInlineProgressBar(percentage = 0, length = 10) {
+        const validPercent = Math.min(100, Math.max(0, Number(percentage) || 0));
+        const filledLength = Math.round((validPercent / 100) * length);
+        const emptyLength = length - filledLength;
+
+        const filledBar = chalk.cyan('█'.repeat(filledLength));
+        const emptyBar = chalk.gray('░'.repeat(emptyLength));
+
+        return `[${filledBar}${emptyBar}] ${chalk.bold(validPercent)}%`;
+    }
+}
+
+    // Imprime cajas estilizadas con boxen cuando una coleccion no contiene registros.
+
+    renderEmptyStateBox(entityName, actionTip) {
+        const message = `${UI.symbols.warning} ${chalk.yellow('No existen ' + entityName + ' registrados actualmente.')}\n${chalk.gray(actionTip)}`;
+        console.log(
+            boxen(message, {
+                padding: 1,
+                margin: { top: 1, bottom: 1 },
+                borderStyle: 'round',
+                borderColor: 'yellow',
+                align: 'center'
+            })
+        );
+    }
+
+    // Carga dinamica de docummentos y menu interactivo de seleccion (Select) para Clientes.
+
+    async selectClientInteractive() {
+        const clients = await this.clientsCollection.find().toArray();
+        if (!clients.length) {
+            this.renderEmptyStateBox('clientes', 'Registra un cliente antes de continuar.');
+            return null;
+        }
+
+        const choices = clients.map(c => ({
+            value: c._id.toString(),
+            lable: `${c.name || 'Sin nombre'} (${c.email || 'Sin email'})`
+        }));
+
+        const selectedId = await select({
+            message: 'Seleccione un cliente de la lista:',
+            options: choices
+        });
+
+        return isCancel(selectedId) ? null : selectedId;
+    }
+
+    // Carga dinamica y menu interactivo de seleccion para proyectos.
+
+    async selectProyectInteractive() {
+        const projects = await this.projectsCollection.find().toArray();
+        if (!projects.length) {
+            this.renderEmptyStateBox('proyectos', 'Crea un proyecto primero desde la opcion correspondiente.');
+            return null;
+        }
+
+        const choices = projects.map(p => ({
+            value: p._id.toString(),
+            label: `${p.name} - ${this.getBadge('projects', p.status)}`
+        }));
+
+        const selectedId = await select({
+            message: 'Selecccione un Proyecto de la lista:',
+            options: choices
+        });
+
+        return isCancel(selectedId) ? null : selectedId;
+    }
+
+    // Carga dinamica y menu interactivo de seleccion (Select) para Entregables.
+
+    async selectDeliverableInteractive() {
+        const deliverables = await this.deliverablesCollection.find().toArray();
+        if (!deliverables.Length) {
+            this.renderEmptyStateBox('entregables', 'No hay entregables disponibles para seleccionar.');
+            return null;
+        }
+
+        const choices = deliverables.map(d => ({
+            value: d._id.toString(),
+            label: `${d.title || d.name} - Estado: ${d.status}`
+        }));
+
+        return isCancel(selectedId) ? null : selectedId;
+    }
+
+// Menu principal del modo Freelancer
+
+async MainMenu() {
+    while(true) {
+        // Ruta de navegacion (breadcrumbs)
+        UI.displayHeader('> Modo Freelanccer > Menu Principal');
+
+        const option = await select({
+            message: 'Seleccione una opcion de gestion:',
+            options: [
+                { value: 'clientes', label: 'Gestion de Clientes' },
+                { value: 'proposal', label: 'Gestion de Propuestas' },
+                { value: 'projects', label: 'Gestion de Proyectos'},
+                { value: 'deliverables', label: 'Gestion de Entregables' },
+                { value: 'finances', label: 'Gestion Financiera' },
+                { value: 'exit', label: 'Salir al Menu Principal' }
+            ]
+        });
+
+        if (isCancel(option) || option === 'exit') break;
+
+        switch (option) {
+            case 'clients': await this.clientsSubMenu(); break;
+            case 'proposals': await this.proposalsSubmenu(); break;
+            case 'projects': await this.projectsSubMenu(); break;
+            case 'deliverables': await this.deliverablesSubMenu(); break;
+            case 'finances': await this.financesSubMenu(); break;
+        }
+    }
+}
+
+// Submodulo: Gestion de clientes
+
+async clientsSubMenu() {
+    while(true) {
+        UI.displayHeader('> Modo Freelancer > Gestion de Clientes');
 
         const action = await select({
-            message: 'Operación de Clientes:',
+            message: 'Operaciones de Clientes:',
             options: [
+                { value: 'list', label: 'Listar Clientes' },
                 { value: 'create', label: 'Crear nuevo cliente' },
-                { value: 'list', label: 'Listar todos los clientes' },
-                { value: 'update', label: 'Actualizar cliente' },
-                { value: 'delete', label: 'Eliminar cliente' },
-                { value: 'associate', label: 'Asociar cliente a proyecto o propuesta' },
                 { value: 'back', label: 'Volver' }
             ]
         });
 
-        if (isCancel(action) || action === 'back') return;
+        if (isCancel(action) || action === 'back') break;
 
-        if (action === 'create') await this.createClient();
         if (action === 'list') await this.listClients();
-        if (action === 'update') await this.updateClient();
-        if (action === 'delete') await this.deleteClient();
-        if (action === 'associate') await this.associateClient();
+        if (action === 'create') await this.createClient();
+    }
+}
 
-        await text({ message: 'Presiona ENTER para continuar...' });
+async listClients() {
+    UI.displayHeader('> Modo Freelancer > Gestion de Clientes > Listar Clientes');
+    const clients = await this.clientsCollection.find().toArray();
+
+    if (!clients.length) {
+        this.renderEmptyStateBox('clientes', 'Utiliza la opcion "Crear nuevo ccliente" para comenzar. ');
+    } else {
+        const headers = ['ID', 'Nombre', 'Email', 'Telefono'];
+        const rows = clients.map(c => [
+            c._id.toString(),
+            c.name || 'N/A',
+            c.email || 'N/A',
+            c.phone || 'N/A'
+        ]);
+        UI.renderTable(headers, rows);
     }
 
+    await text({ message: "Presione ENTER para continuar.."});
+}
+
 async createClient() {
+    UI.displayHeader('> Modo Freelancer > Gestion de clientes > Crear nuevo cliente');
+
     const name = await text({
-        message: 'Nombre completo o Empresa:',
-        validate(val) { if (!val || val.trim().length < 3) return 'Mínimo 3 caracteres.'; }
+        message: 'Nombre del Cliente:',
+        validate: val => val.trim().length === 0 ? 'El nombre es requerido' : undefined
     });
     if (isCancel(name)) return;
 
     const email = await text({
-        message: 'Correo de contacto:',
-        validate(val) { if (!validator.isEmail(val)) return 'Ingrese un correo válido.'; }
+        message: 'Correo Electronico:',
+        validate: val => !validator.isEmail(val) ? 'Ingrese un email valido' : undefined
     });
-    if (isCancel(email)) return;
+    if (isCanccel(email)) return;
 
-    const phone = await text({ message: 'Teléfono de contacto:' });
+    const phone = await text({ message: 'Telefono (Opcional):'});
     if (isCancel(phone)) return;
 
-    const clientPassword = await password({
-        message: 'Asignar contraseña al cliente:'
+    const spinner = UI.createSpinner('Guardando cliente en base de datos...').start();
+    await this.clientsCollection.insertOne({
+        name,
+        email,
+        phone: phone || 'N/A',
+        createdAT: new Date()
     });
-    if (isCancel(clientPassword)) return;
+    spinner.suceeed(chalk.green(`${UI.symbols.success} Cliente registrado con exito.`));
 
-    const spinner = UI.createSpinner('Guardando cliente...').start();
-    try {
-        const doc = { 
-            name: name.trim(), 
-            email: email.trim().toLowerCase(), 
-            phone: phone.trim(), 
-            password: clientPassword,
-            createdAt: new Date() 
-        };
-        const res = await this.clientsCollection.insertOne(doc);
-        spinner.succeed(chalk.green(`Cliente creado con ID: ${res.insertedId}`));
-    } catch (e) {
-        spinner.fail('Error al guardar el cliente.');
-        note(e.message, 'Error de MongoDB');
+    await text({ message: "Presion ENTER para continuar..."});
+}
+
+// Submodulo: Gestion de Proyectos
+
+async projectsSubmenu() {
+    while (true) {
+        UI.displayHeader('> Modo Freelancer > Gestion de proyectos');
+        
+        const action = await select({
+            message: 'Opreraciones de proyectos:',
+            options: [
+                { value: 'list', label: 'Listar Proyectos'},
+                { value: 'update_progress', label: 'Actualizar avance de Proyecto' },
+                { value: 'back', label: 'volver' }
+            ]
+        });
+
+        if(isCancel(acction) || action === 'back') break;
+
+        if (action === 'list') await this.listProjects();
+        if (action === 'update_progress') await this.updateProjectProgress();
     }
 }
 
-    async listClients() {
-        const spinner = UI.createSpinner('Cargando clientes...').start();
-        try {
-            const clients = await this.clientsCollection.find({}).toArray();
-            spinner.stop();
+async listProjects() {
+    UI.displayHeader('> Modo Freelancer > Gestion de Proyectos > Listar proyectos');
+    const projects = await this.projectsCollection.find().toArray();
 
-            if (clients.length === 0) {
-                console.log(chalk.yellow('\nNo hay clientes registrados.\n'));
-                return;
-            }
-
-            const rows = clients.map(c => [c._id.toString(), c.name, c.email, c.phone || 'N/A', UI.formatDate(c.createdAt)]);
-            UI.renderTable(['ID MongoDB', 'Nombre', 'Email', 'Teléfono', 'Fecha Registro'], rows);
-        } catch (e) {
-            spinner.fail('Error al consultar clientes.');
-        }
+    if (!projects.length) {
+        this.renderEmptyStateBox('proyectos', 'Utiliza la opcion de registro de proyectos para vinculuar uno nuevo.');
+    } else {
+        const headers = ['ID Proyecto', 'Nombre', 'Estado', 'Progreso de Avance'];
+        const rows = projects.map(pr => [
+            pr._id.toString(),
+            pr.name || 'Sin titulo',
+            
+        ]);
+        UI.renderTable(headers, rows);
     }
 
-    async updateClient() {
-        const id = await text({ message: 'ID del cliente a actualizar:' });
-        if (isCancel(id) || !ObjectId.isValid(id)) return;
+    await text({ message: 'Presione ENTER para continuar...'});
+}
 
-        const newName = await text({ message: 'Nuevo nombre (dejar vacío para conservar):' });
-        const newPhone = await text({ message: 'Nuevo teléfono (dejar vacío para conservar):' });
+async updateProjectProgress() {
+    UI.displayHeader('> Modo Freelancer > Gestion de proyectos > Actualizar Avance');
 
-        const updateDoc = {};
-        if (newName && newName.trim()) updateDoc.name = newName.trim();
-        if (newPhone && newPhone.trim()) updateDoc.phone = newPhone.trim();
+    const projectId = await this.selectProyectInteractive();
+    if(!proyectId) return;
 
-        if (Object.keys(updateDoc).length === 0) return;
-
-        const spinner = UI.createSpinner('Actualizando cliente...').start();
-        try {
-            await this.clientsCollection.updateOne({ _id: new ObjectId(id) }, { $set: updateDoc });
-            spinner.succeed(chalk.green('Cliente actualizado exitosamente.'));
-        } catch (e) {
-            spinner.fail('Fallo la actualización.');
+    const newProgress = await text({
+        message: 'Ingrese el nuevo porcentaje de avance (0 - 100):',
+        validate: val => {
+            if (isNaN(numb) || num < 0 || num > 100) return 'Ingrese un numero valido entre 0 y 100';
         }
-    }
+    });
+    spinner.succed(chalk.green(`${UI.symbols.success} Avance de proyecto actualizado correctamente.`));
 
-    async deleteClient() {
-        const id = await text({ message: 'ID del cliente a eliminar:' });
-        if (isCancel(id) || !ObjectId.isValid(id)) return;
+    await text({ message: 'Presione ENTER para continuar...'});
+}
 
-        const sure = await confirm({ message: '¿Seguro que deseas eliminar este cliente?' });
-        if (!sure || isCancel(sure)) return;
+// Submodulo: Gestion de entregables (Operaciones Atomicas / ACID)
 
-        const spinner = UI.createSpinner('Eliminando cliente...').start();
-        try {
-            await this.clientsCollection.deleteOne({ _id: new ObjectId(id) });
-            spinner.succeed(chalk.green('Cliente eliminado de la base de datos.'));
-        } catch (e) {
-            spinner.fail('Error al eliminar cliente.');
-        }
-    }
-
-    async associateClient() {
-        const clientId = await text({ message: 'ID del Cliente:' });
-        const projectId = await text({ message: 'ID del Proyecto o Propuesta:' });
-        if (isCancel(clientId) || isCancel(projectId)) return;
-
-        const spinner = UI.createSpinner('Asociando registro...').start();
-        try {
-            await this.projectsCollection.updateOne(
-                { _id: new ObjectId(projectId) },
-                { $set: { clientId: new ObjectId(clientId) } }
-            );
-            spinner.succeed(chalk.green('Cliente asociado correctamente al proyecto.'));
-        } catch (e) {
-            spinner.fail('Error al realizar la asociación.');
-        }
-    }
-
-    // 2. GESTIÓN DE PROPUESTAS
-
-    async proposalsModule() {
-        UI.displayHeader('2. Gestión de Propuestas');
+async deliverablesSubMenu() {
+    while (true) {
+        UI.displayHeader('> Modo Freelancer > Gestion de entregables');
 
         const action = await select({
-            message: 'Operación de Propuestas:',
+            message: 'Operaciones de Entregables:',
             options: [
-                { value: 'create', label: 'Crear propuesta (Descripción, Precio, Plazos)' },
-                { value: 'status', label: 'Cambiar estado (Pendiente, Aceptada, Rechazada)' },
-                { value: 'list', label: 'Listar propuestas' },
+                { value: 'delete_acid', label: 'Eliminar Entregable'},
                 { value: 'back', label: 'Volver' }
             ]
         });
 
-        if (isCancel(action) || action === 'back') return;
+        if (isCancel(action) || action === 'back') break;
 
-        if (action === 'create') await this.createProposal();
-        if (action === 'status') await this.updateProposalStatus();
-        if (action === 'list') await this.listProposals();
-
-        await text({ message: 'Presiona ENTER para continuar...' });
+        if (action === 'delete_acid') await this.deleteDeliverableWithTransaction();
     }
+}
 
-    async createProposal() {
-        const clientId = await text({ message: 'ID del cliente destinatario:' });
-        if (isCancel(clientId) || !ObjectId.isValid(clientId)) return;
+async deliverablesSubMenu() {
+        while (true) {
+            UI.displayHeader('> Modo Freelancer > Gestion de Entregables');
 
-        const title = await text({ message: 'Título de la propuesta:' });
-        const description = await text({ message: 'Descripción del trabajo:' });
-        const priceStr = await text({ message: 'Precio estimado ($):' });
-        const deadline = await text({ message: 'Plazo / Fecha límite (Ej: 2026-12-31):' });
-
-        const spinner = UI.createSpinner('Registrando propuesta...').start();
-        try {
-            const proposalDoc = {
-                clientId: new ObjectId(clientId),
-                title: title.trim(),
-                description: description.trim(),
-                price: parseFloat(priceStr) || 0,
-                deadline: deadline.trim(),
-                status: 'pendiente', // pendiente, aceptada, rechazada
-                createdAt: new Date()
-            };
-
-            const res = await this.proposalsCollection.insertOne(proposalDoc);
-            spinner.succeed(chalk.green(`Propuesta guardada con ID: ${res.insertedId}`));
-        } catch (e) {
-            spinner.fail('Error al registrar la propuesta.');
-        }
-    }
-
-    async updateProposalStatus() {
-        const proposalId = await text({ message: 'ID de la propuesta:' });
-        if (isCancel(proposalId) || !ObjectId.isValid(proposalId)) return;
-
-        const newStatus = await select({
-            message: 'Selecciona el nuevo estado:',
-            options: [
-                { value: 'pendiente', label: 'Pendiente' },
-                { value: 'aceptada', label: 'Aceptada (Genera Proyecto automáticamente)' },
-                { value: 'rechazada', label: 'Rechazada' }
-            ]
-        });
-        if (isCancel(newStatus)) return;
-
-        const spinner = UI.createSpinner('Procesando actualización...').start();
-        try {
-            // 1. Actualiza el estado de la propuesta
-            await this.proposalsCollection.updateOne(
-                { _id: new ObjectId(proposalId) },
-                { $set: { status: newStatus } }
-            );
-
-            // 2. REQUERIMIENTO CLAVE: Al ser aceptada, debe generar automáticamente un proyecto
-            if (newStatus === 'aceptada') {
-                const proposal = await this.proposalsCollection.findOne({ _id: new ObjectId(proposalId) });
-
-                const autoProject = {
-                    proposalId: proposal._id,
-                    clientId: proposal.clientId,
-                    name: proposal.title,
-                    description: proposal.description,
-                    budget: proposal.price,
-                    status: 'activo', // Estados: activo, pausado, finalizado, cancelado
-                    progress: 0,
-                    createdAt: new Date()
-                };
-
-                const projRes = await this.projectsCollection.insertOne(autoProject);
-                spinner.succeed(chalk.green(`Propuesta ACEPTADA. Se ha generado automáticamente el proyecto ID: ${projRes.insertedId}`));
-            } else {
-                spinner.succeed(chalk.green(`Estado de la propuesta actualizado a '${newStatus}'.`));
-            }
-        } catch (e) {
-            spinner.fail('Error al actualizar el estado de la propuesta.');
-        }
-    }
-
-    async listProposals() {
-        const spinner = UI.createSpinner('Cargando propuestas...').start();
-        try {
-            const proposals = await this.proposalsCollection.find({}).toArray();
-            spinner.stop();
-
-            if (proposals.length === 0) {
-                console.log(chalk.yellow('\nNo existen propuestas registradas.\n'));
-                return;
-            }
-
-            const rows = proposals.map(p => [
-                p._id.toString(),
-                p.title,
-                `$${p.price}`,
-                p.status.toUpperCase(),
-                p.deadline
-            ]);
-
-            UI.renderTable(['ID Propuesta', 'Título', 'Precio', 'Estado', 'Plazo'], rows);
-        } catch (e) {
-            spinner.fail('Error al consultar propuestas.');
-        }
-    }
-
-    // 3. GESTIÓN DE PROYECTOS
-
-    async projectsModule() {
-        UI.displayHeader('3. Gestión de Proyectos');
-
-        const action = await select({
-            message: 'Operación de Proyectos:',
-            options: [
-                { value: 'list', label: 'Listar proyectos' },
-                { value: 'status', label: 'Cambiar estado (activo, pausado, finalizado, cancelado)' },
-                { value: 'progress', label: 'Registrar avances del proyecto' },
-                { value: 'back', label: 'Volver' }
-            ]
-        });
-
-        if (isCancel(action) || action === 'back') return;
-
-        if (action === 'list') await this.listProjects();
-        if (action === 'status') await this.updateProjectStatus();
-        if (action === 'progress') await this.registerProjectProgress();
-
-        await text({ message: 'Presiona ENTER para continuar...' });
-    }
-
-    async listProjects() {
-        const spinner = UI.createSpinner('Cargando proyectos...').start();
-        try {
-            const projects = await this.projectsCollection.find({}).toArray();
-            spinner.stop();
-
-            if (projects.length === 0) {
-                console.log(chalk.yellow('\nNo hay proyectos registrados.\n'));
-                return;
-            }
-
-            const rows = projects.map(pr => [
-                pr._id.toString(),
-                pr.name,
-                pr.clientId ? pr.clientId.toString() : 'Sin Cliente',
-                pr.status.toUpperCase(),
-                `${pr.progress || 0}%`
-            ]);
-
-            UI.renderTable(['ID Proyecto', 'Nombre', 'ID Cliente', 'Estado', 'Avance'], rows);
-        } catch (e) {
-            spinner.fail('Error al obtener proyectos.');
-        }
-    }
-
-    async updateProjectStatus() {
-        const projId = await text({ message: 'ID del proyecto:' });
-        if (isCancel(projId) || !ObjectId.isValid(projId)) return;
-
-        const status = await select({
-            message: 'Nuevo estado del proyecto:',
-            options: [
-                { value: 'activo', label: 'Activo' },
-                { value: 'pausado', label: 'Pausado' },
-                { value: 'finalizado', label: 'Finalizado' },
-                { value: 'cancelado', label: 'Cancelado' }
-            ]
-        });
-        if (isCancel(status)) return;
-
-        const spinner = UI.createSpinner('Actualizando estado del proyecto...').start();
-        try {
-            await this.projectsCollection.updateOne({ _id: new ObjectId(projId) }, { $set: { status } });
-            spinner.succeed(chalk.green(`Estado del proyecto modificado a '${status}'.`));
-        } catch (e) {
-            spinner.fail('Error al modificar estado.');
-        }
-    }
-
-    async registerProjectProgress() {
-        const projId = await text({ message: 'ID del proyecto:' });
-        if (isCancel(projId) || !ObjectId.isValid(projId)) return;
-
-        const percentageStr = await text({ message: 'Porcentaje de avance (0 - 100):' });
-        const noteText = await text({ message: 'Descripción del avance logrado:' });
-
-        const percentage = parseInt(percentageStr, 10);
-        const spinner = UI.createSpinner('Registrando avance...').start();
-
-        try {
-            await this.projectsCollection.updateOne(
-                { _id: new ObjectId(projId) },
-                {
-                    $set: { progress: percentage },
-                    $push: { logs: { note: noteText, percentage, date: new Date() } }
-                }
-            );
-            spinner.succeed(chalk.green(`Avance actualizado al ${percentage}%.`));
-        } catch (e) {
-            spinner.fail('Error al registrar el avance.');
-        }
-    }
-
-    // 4. CONTRATOS
-
-    async contractsModule() {
-        UI.displayHeader('4. Gestión de Contratos');
-
-        const action = await select({
-            message: 'Operación de Contratos:',
-            options: [
-                { value: 'create', label: 'Registrar nuevo contrato para proyecto' },
-                { value: 'list', label: 'Consultar contratos' },
-                { value: 'back', label: 'Volver' }
-            ]
-        });
-
-        if (isCancel(action) || action === 'back') return;
-
-        if (action === 'create') await this.createContract();
-        if (action === 'list') await this.listContracts();
-
-        await text({ message: 'Presiona ENTER para continuar...' });
-    }
-
-    async createContract() {
-        const projectId = await text({ message: 'ID del proyecto asociado:' });
-        if (isCancel(projectId) || !ObjectId.isValid(projectId)) return;
-
-        const conditions = await text({ message: 'Condiciones y términos del contrato:' });
-        const startDate = await text({ message: 'Fecha de inicio (AAAA-MM-DD):' });
-        const endDate = await text({ message: 'Fecha de finalización (AAAA-MM-DD):' });
-        const totalValueStr = await text({ message: 'Valor total del contrato ($):' });
-
-        const spinner = UI.createSpinner('Vinculando contrato...').start();
-        try {
-            const contractDoc = {
-                projectId: new ObjectId(projectId),
-                conditions: conditions.trim(),
-                startDate: startDate.trim(),
-                endDate: endDate.trim(),
-                totalValue: parseFloat(totalValueStr) || 0,
-                createdAt: new Date()
-            };
-
-            const res = await this.contractsCollection.insertOne(contractDoc);
-            // Vincular contrato en la colección de proyectos
-            await this.projectsCollection.updateOne(
-                { _id: new ObjectId(projectId) },
-                { $set: { contractId: res.insertedId } }
-            );
-
-            spinner.succeed(chalk.green(`Contrato vinculado correctamente. ID: ${res.insertedId}`));
-        } catch (e) {
-            spinner.fail('Error al registrar el contrato.');
-        }
-    }
-
-    async listContracts() {
-        const spinner = UI.createSpinner('Cargando contratos...').start();
-        try {
-            const contracts = await this.contractsCollection.find({}).toArray();
-            spinner.stop();
-
-            if (contracts.length === 0) {
-                console.log(chalk.yellow('\nNo existen contratos registrados.\n'));
-                return;
-            }
-
-            const rows = contracts.map(c => [
-                c._id.toString(),
-                c.projectId.toString(),
-                `$${c.totalValue}`,
-                c.startDate,
-                c.endDate
-            ]);
-
-            UI.renderTable(['ID Contrato', 'ID Proyecto', 'Valor Total', 'Fecha Inicio', 'Fecha Fin'], rows);
-        } catch (e) {
-            spinner.fail('Error al consultar contratos.');
-        }
-    }
-    
-    // 5. ENTREGABLES (Con Transacciones y Rollback)
-
-    async deliverablesModule() {
-        UI.displayHeader('5. Gestión de Entregables');
-
-        const action = await select({
-            message: 'Operación de Entregables:',
-            options: [
-                { value: 'create', label: 'Agregar entregable a proyecto' },
-                { value: 'status', label: 'Cambiar estado (pendiente, entregado, aprobado, rechazado)' },
-                { value: 'delete_rollback', label: 'Eliminar entregable (Garantizado con Transacción)' },
-                { value: 'back', label: 'Volver' }
-            ]
-        });
-
-        if (isCancel(action) || action === 'back') return;
-
-        if (action === 'create') await this.createDeliverable();
-        if (action === 'status') await this.updateDeliverableStatus();
-        if (action === 'delete_rollback') await this.deleteDeliverableWithTransaction();
-
-        await text({ message: 'Presiona ENTER para continuar...' });
-    }
-
-    async createDeliverable() {
-        const projectId = await text({ message: 'ID del Proyecto:' });
-        if (isCancel(projectId) || !ObjectId.isValid(projectId)) return;
-
-        const title = await text({ message: 'Nombre/Título del entregable:' });
-        const deadline = await text({ message: 'Fecha límite (AAAA-MM-DD):' });
-
-        const spinner = UI.createSpinner('Registrando entregable...').start();
-        try {
-            const doc = {
-                projectId: new ObjectId(projectId),
-                title: title.trim(),
-                deadline: deadline.trim(),
-                status: 'pendiente', // pendiente, entregado, aprobado, rechazado
-                createdAt: new Date()
-            };
-
-            const res = await this.deliverablesCollection.insertOne(doc);
-            spinner.succeed(chalk.green(`Entregable registrado con ID: ${res.insertedId}`));
-        } catch (e) {
-            spinner.fail('Error al registrar entregable.');
-        }
-    }
-
-    async updateDeliverableStatus() {
-        const delivId = await text({ message: 'ID del entregable:' });
-        if (isCancel(delivId) || !ObjectId.isValid(delivId)) return;
-
-        const status = await select({
-            message: 'Estado del entregable:',
-            options: [
-                { value: 'pendiente', label: 'Pendiente' },
-                { value: 'entregado', label: 'Entregado' },
-                { value: 'aprobado', label: 'Aprobado' },
-                { value: 'rechazado', label: 'Rechazado' }
-            ]
-        });
-        if (isCancel(status)) return;
-
-        const spinner = UI.createSpinner('Actualizando estado del entregable...').start();
-        try {
-            await this.deliverablesCollection.updateOne({ _id: new ObjectId(delivId) }, { $set: { status } });
-            spinner.succeed(chalk.green(`Estado de entregable cambiado a '${status}'.`));
-        } catch (e) {
-            spinner.fail('Fallo al modificar entregable.');
-        }
-    }
-
-    
-    //Rollback mediante transacciones ACID de MongoDB.
-    async deleteDeliverableWithTransaction() {
-        const delivId = await text({ message: 'ID del entregable a eliminar:' });
-        if (isCancel(delivId) || !ObjectId.isValid(delivId)) return;
-
-        const session = Database.startSession();
-        const spinner = UI.createSpinner('Ejecutando eliminación segura dentro de transacción...').start();
-
-        try {
-            await session.withTransaction(async () => {
-                // 1. Verificar si existe
-                const item = await this.deliverablesCollection.findOne({ _id: new ObjectId(delivId) }, { session });
-                if (!item) throw new Error('Entregable no encontrado.');
-
-                // 2. Eliminar entregable
-                await this.deliverablesCollection.deleteOne({ _id: new ObjectId(delivId) }, { session });
-
-                // 3. Desvincular de la lista del proyecto asociado
-                await this.projectsCollection.updateOne(
-                    { _id: item.projectId },
-                    { $pull: { deliverables: new ObjectId(delivId) } },
-                    { session }
-                );
+            const action = await select({
+                message: 'Operaciones de Entregables:',
+                options: [
+                    { value: 'delete_acid', label: 'Eliminar Entregable con Transaccion ACID' },
+                    { value: 'back', label: 'Volver' }
+                ]
             });
 
-            spinner.succeed(chalk.green('Entregable eliminado con éxito (Transacción ACID completada).'));
-        } catch (e) {
-            spinner.fail(`Rollback ejecutado: ${e.message}`);
+            if (isCancel(action) || action === 'back') break;
+
+            if (action === 'delete_acid') await this.deleteDeliverableWithTransaction();
+        }
+    }
+
+async deleteDeliverableWithTransaction() {
+    UI.displayHeader('> Modo Freelancer > Gestion de Entregables > Eliminacion Atomica ACID');
+
+    const deliverableId = await this.selectDeliverableInteractive();
+    if (!deliverableId) return;
+
+    const confirmDelete = await confirm({
+        message: `¿Está seguro de ejecutar la eliminación atómica del entregable ID #${deliverableId}?`
+        });
+        if (!confirmDelete || isCancel(confirmDelete)) return;
+
+        const client = Database.getClient();
+        const session = client.startSession();
+
+        let statusText = '';
+        let reasonText = '';
+        let isSuccess = false;
+
+        const spinner = UI.createSpinner('Ejecutando sesión de transacción atómica ACID...').start();
+
+    try {
+        session.startTransaction();
+
+        const deleteResult = await this.deliverablesCollection.deleteOne(
+            { _id: new ObjectId(deliverableId) },
+            { session }
+        );
+
+        if (deleteResult.deletedCount === 1) {
+            await session.commitTransaction();
+            isSuccess = true;
+            statusText = chalk.green('[ COMMIT / ELIMINACION EXITOSA ]');
+            reasonText = 'Entregable y referencias desvinculadas correctamente';
+            spinner.succeed(chalk.green(`${UI.symbols.success} Transacción atómica completada.`));
+            } else {
+                await session.abortTransaction();
+                isSuccess = false;
+                statusText = chalk.red('[ ABORTED / ROLLBACK EJECUTADO ]');
+                reasonText = 'Entregable no encontrado o ya desvinculado';
+                spinner.fail(chalk.yellow(`${UI.symbols.warning} Transacción abortada. Aplicando Rollback.`));
+            }
+        } catch (error) {
+            await session.abortTransaction();
+            isSuccess = false;
+            statusText = chalk.red('[ ABORTED / ROLLBACK ERROR ]');
+            reasonText = `Excepción en DB: ${error.message}`;
+            spinner.fail(chalk.red(`${UI.symbols.error} Error crítico en transacción.`));
         } finally {
             await session.endSession();
         }
-    }
 
+// Ticket visual de transaccion impreso con Boxen
+const ticketContent = [
+    chalk.bold.cyan('RESULTADO DE OPERACION (TRANSACTION SESION)'),
+    '-'.repeat(58),
+    `Status:        ${statusText}`,
+    `Operaciones: Eliminacion de Entregable #${deliverableId.substring(0, 10)}...`,
+    `Razon:         ${reasonText}`,
+    `Integridad:    ${isSuccess ? chalk.green('[ BASE DE DATOS ACTUALIZADA ]') : chalk.yellow('[ BASE DE DATOS PROTEGIDA SIN CAMBIOS ]')}`
+].join('\n');
 
-    // 6. GESTIÓN FINANCIERA
+console.log(
+    boxen(ticketContent, {
+        padding: 1,
+        margin: { top: 1. bottom: 1 },
+        boderStyle: 'round',
+        boderColor: isSuccess ? 'green' : 'red'
+    })
+);
 
-    async financesModule() {
-        UI.displayHeader('6. Gestión Financiera');
+await text({ message: 'Presion ENTER para continuar...'});
+}
 
-        const action = await select({
-            message: 'Operación Financiera:',
-            options: [
-                { value: 'register', label: 'Registrar Ingreso o Egreso por Proyecto' },
-                { value: 'balance_client', label: 'Cálculo de Balance por Cliente' },
-                { value: 'payment_transaction', label: 'Registrar pago seguro con Transacción' },
-                { value: 'back', label: 'Volver' }
-            ]
-        });
+// Submodulo: Gestion Financiera
 
-        if (isCancel(action) || action === 'back') return;
+async financesSubMenu() {
+        while (true) {
+            UI.displayHeader('> Modo Freelancer > Gestion Financiera');
 
-        if (action === 'register') await this.registerFinance();
-        if (action === 'balance_client') await this.calculateBalanceByClient();
-        if (action === 'payment_transaction') await this.processPaymentTransaction();
+            const action = await select({
+                message: 'Operaciones Financieras:',
+                options: [
+                    { value: 'balance', label: 'Balance Financiero por Cliente' },
+                    { value: 'back', label: 'Volver' }
+                ]
+            });
 
-        await text({ message: 'Presiona ENTER para continuar...' });
-    }
+            if (isCancel(action) || action === 'back') break;
 
-    async registerFinance() {
-        const projectId = await text({ message: 'ID del proyecto:' });
-        if (isCancel(projectId) || !ObjectId.isValid(projectId)) return;
-
-        const type = await select({
-            message: 'Tipo de movimiento:',
-            options: [
-                { value: 'ingreso', label: 'Ingreso (+)' },
-                { value: 'egreso', label: 'Egreso (-)' }
-            ]
-        });
-        if (isCancel(type)) return;
-
-        const amountStr = await text({ message: 'Monto ($):' });
-        const concept = await text({ message: 'Concepto / Descripción:' });
-
-        const spinner = UI.createSpinner('Registrando transacción financiera...').start();
-        try {
-            const doc = {
-                projectId: new ObjectId(projectId),
-                type,
-                amount: parseFloat(amountStr) || 0,
-                concept: concept.trim(),
-                date: new Date()
-            };
-
-            await this.financesCollection.insertOne(doc);
-            spinner.succeed(chalk.green(`Movimiento de ${type} registrado con éxito.`));
-        } catch (e) {
-            spinner.fail('Error al registrar movimiento financiero.');
+            if (action === 'balance') await this.calculateBalanceByClient();
         }
     }
 
     async calculateBalanceByClient() {
-        const clientId = await text({ message: 'ID del cliente:' });
-        if (isCancel(clientId) || !ObjectId.isValid(clientId)) return;
+        UI.displayHeader('> Modo Freelancer > Gestion Financiera > Balance Financiero');
 
-        const spinner = UI.createSpinner('Calculando balance financiero...').start();
-        try {
-            // 1. Obtener proyectos del cliente
-            const projects = await this.projectsCollection.find({ clientId: new ObjectId(clientId) }).toArray();
-            const projectIds = projects.map(p => p._id);
+        const clientId = await this.selectClientInteractive();
+        if (!clientId) return;
 
-            // 2. Obtener movimientos financieros de esos proyectos
-            const records = await this.financesCollection.find({ projectId: { $in: projectIds } }).toArray();
-            spinner.stop();
+        const spinner = UI.createSpinner('Calculando balance financiero del cliente...').start();
 
-            let totalIngresos = 0;
-            let totalEgresos = 0;
+        const client = await this.clientsCollection.findOne({ _id: new ObjectId(clientId) });
+        const transactions = await this.financesCollection.find({ clientId: new ObjectId(clientId) }).toArray();
 
-            records.forEach(r => {
-                if (r.type === 'ingreso') totalIngresos += r.amount;
-                if (r.type === 'egreso') totalEgresos += r.amount;
-            });
+        let totalIncome = 0;
+        let totalExpense = 0;
 
-            const balance = totalIngresos - totalEgresos;
+        transactions.forEach(t => {
+            const amount = Number(t.amount) || 0;
+            if (t.type === 'ingreso') totalIncome += amount;
+            if (t.type === 'egreso') totalExpense += amount;
+        });
 
-            console.log(chalk.bold(`\nBalance Financiero del Cliente [ID: ${clientId}]:`));
-            console.log(`- Total Ingresos: ${chalk.green(`$${totalIngresos}`)}`);
-            console.log(`- Total Egresos:  ${chalk.red(`$${totalEgresos}`)}`);
-            console.log(`- Balance Neto:   ${balance >= 0 ? chalk.green(`$${balance}`) : chalk.red(`$${balance}`)}\n`);
-        } catch (e) {
-            spinner.fail('Error al calcular el balance.');
-        }
+        const netBalance = totalIncome - totalExpense;
+        spinner.stop();
+
+        // Tarjeta resumen formateada con Boxen
+        const formattedIncome = chalk.green(`+$${totalIncome.toFixed(2)}`);
+        const formattedExpense = chalk.red(`-$${totalExpense.toFixed(2)}`);
+        const formattedBalance = netBalance >= 0 
+            ? chalk.bold.green(`+$${netBalance.toFixed(2)}`) 
+            : chalk.bold.red(`-$${Math.abs(netBalance).toFixed(2)}`);
+
+        const cardContent = [
+            chalk.bold.cyan('TARJETA DE BALANCE FINANCIERO'),
+            '─'.repeat(45),
+            `Cliente:          ${chalk.bold(client?.name || 'Cliente N/A')}`,
+            `Email:            ${client?.email || 'N/A'}`,
+            '─'.repeat(45),
+            `Total Ingresos:   ${formattedIncome}`,
+            `Total Egresos:    ${formattedExpense}`,
+            '─'.repeat(45),
+            `Balance Neto:     ${formattedBalance}`
+        ].join('\n');
+
+        console.log(
+            boxen(cardContent, {
+                padding: 1,
+                margin: { top: 1, bottom: 1 },
+                borderStyle: 'double',
+                borderColor: 'cyan'
+            })
+        );
+
+        await text({ message: 'Presione ENTER para continuar...' });
     }
-
-
-    // Transacción para registrar pagos, evitar duplicidad y garantizar consistencia.
-    async processPaymentTransaction() {
-        const projectId = await text({ message: 'ID del proyecto a pagar:' });
-        const amountStr = await text({ message: 'Monto del pago ($):' });
-        const txRef = await text({ message: 'Código de referencia único del pago:' });
-
-        if (isCancel(projectId) || isCancel(txRef)) return;
-
-        const session = Database.startSession();
-        const spinner = UI.createSpinner('Procesando pago atómico mediante transacción...').start();
-
-        try {
-            await session.withTransaction(async () => {
-                // A. Verificar no duplicidad del código de referencia
-                const duplicate = await this.financesCollection.findOne({ reference: txRef.trim() }, { session });
-                if (duplicate) {
-                    throw new Error('El código de referencia de este pago ya fue procesado previamente.');
-                }
-
-                // B. Registrar el ingreso financiero
-                await this.financesCollection.insertOne({
-                    projectId: new ObjectId(projectId),
-                    type: 'ingreso',
-                    amount: parseFloat(amountStr) || 0,
-                    concept: 'Pago de cliente registrado de forma segura',
-                    reference: txRef.trim(),
-                    date: new Date()
-                }, { session });
-
-                // C. Actualizar estado financiero del proyecto
-                await this.projectsCollection.updateOne(
-                    { _id: new ObjectId(projectId) },
-                    { $inc: { totalPaid: parseFloat(amountStr) || 0 } },
-                    { session }
-                );
-            });
-
-            spinner.succeed(chalk.green('Pago verificado y registrado exitosamente sin duplicación.'));
-        } catch (e) {
-            spinner.fail(`Fallo en el pago (Transacción abortada): ${e.message}`);
-        } finally {
-            await session.endSession();
-        }
-    }
-}
