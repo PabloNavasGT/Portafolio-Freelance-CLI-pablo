@@ -3,6 +3,16 @@ import chalk from 'chalk';
 import validator from 'validator';
 import { ObjectId } from 'mongodb';
 
+import figlet from 'figlet';
+import gradient from 'gradient-string';
+import boxen from 'boxen';
+import Table from 'cli-table3';
+import cliProgress from 'cli-progress';
+import dayjs from 'dayjs';
+import figures from 'figures';
+import logSymbols from 'log-symbols';
+import ora from 'ora';
+
 import Database from '../config/db.js';
 import { UI } from '../utils/ui.js';
 
@@ -23,10 +33,72 @@ export class ClientMenu {
     get financesCollection() { return this.db.collection('finances'); }
 
     /**
+     * Auxiliar UI: Genera insignias de estado coloridas con íconos Unicode.
+     */
+    renderBadge(status) {
+        if (!status) return chalk.bgGray.white(' N/A ');
+        const st = status.toLowerCase();
+
+        switch (st) {
+            case 'aceptada':
+            case 'aprobado':
+            case 'activo':
+            case 'completado':
+                return chalk.bgGreen.black(` ${figures.tick} ${status.toUpperCase()} `);
+            case 'pendiente':
+            case 'en proceso':
+                return chalk.bgYellow.black(` ${figures.warning} ${status.toUpperCase()} `);
+            case 'rechazada':
+            case 'rechazado':
+            case 'cancelado':
+                return chalk.bgRed.white.bold(` ${figures.cross} ${status.toUpperCase()} `);
+            case 'ingreso':
+                return chalk.bgGreen.black(` + INGRESO `);
+            case 'egreso':
+                return chalk.bgRed.white.bold(` - EGRESO `);
+            default:
+                return chalk.bgBlue.white(` ${status.toUpperCase()} `);
+        }
+    }
+
+    /**
+     * Auxiliar UI: Genera una barra de progreso gráfica visual en ASCII/Unicode.
+     */
+    renderProgressBar(progressPercent) {
+        const pct = Math.max(0, Math.min(100, Number(progressPercent) || 0));
+        const totalBlocks = 10;
+        const filledBlocks = Math.round((pct / 100) * totalBlocks);
+        const bar = '█'.repeat(filledBlocks) + '░'.repeat(totalBlocks - filledBlocks);
+        
+        return `${chalk.cyan(bar)} ${pct}%`;
+    }
+
+    /**
+     * Auxiliar UI: Renderiza una pantalla estilizada de Estado Vacío (Empty State).
+     */
+    renderEmptyState(title, message) {
+        const content = [
+            chalk.yellow.bold(`${figures.info} ${title}`),
+            '',
+            chalk.gray(message)
+        ].join('\n');
+
+        console.log(
+            boxen(content, {
+                padding: 1,
+                margin: { top: 1, bottom: 1 },
+                borderStyle: 'round',
+                borderColor: 'yellow',
+                align: 'center'
+            })
+        );
+    }
+
+    /**
      * Capa de validación e inicio de sesión antes de dar acceso al submenú.
      */
     async login() {
-        UI.displayHeader('Acceso al Portal de Clientes');
+        UI.displayHeader('Portal de Clientes > Autenticación');
 
         const email = await text({
             message: 'Correo electrónico:',
@@ -72,7 +144,7 @@ export class ClientMenu {
         let inSubmenu = true;
 
         while (inSubmenu) {
-            UI.displayHeader(`Panel de Cliente: ${this.currentClient.name}`);
+            UI.displayHeader(`Portal de Clientes > Panel Principal (${this.currentClient.name})`);
 
             const option = await select({
                 message: '¿Qué acción deseas realizar?',
@@ -122,13 +194,27 @@ export class ClientMenu {
 
     // 1. PERFIL
     async profileModule() {
-        UI.displayHeader('1. Información de Mi Perfil');
+        UI.displayHeader('Portal de Clientes > Mi Perfil');
 
-        console.log(chalk.bold('\nDatos del Cliente Autenticado:'));
-        console.log(`- ID MongoDB: ${this.currentClient._id}`);
-        console.log(`- Nombre:     ${this.currentClient.name}`);
-        console.log(`- Correo:     ${this.currentClient.email}`);
-        console.log(`- Teléfono:   ${this.currentClient.phone || 'N/A'}\n`);
+        const profileCard = [
+            `${chalk.green.bold(`${figures.squareSmallFilled} SESIÓN ACTIVA`)} ${chalk.gray('(Cliente Autenticado)')}`,
+            '──────────────────────────────────────────────',
+            `${chalk.cyan.bold('• ID MongoDB:')} ${this.currentClient._id}`,
+            `${chalk.cyan.bold('• Nombre:')}     ${this.currentClient.name}`,
+            `${chalk.cyan.bold('• Correo:')}     ${this.currentClient.email}`,
+            `${chalk.cyan.bold('• Teléfono:')}   ${this.currentClient.phone || 'N/A'}`
+        ].join('\n');
+
+        console.log(
+            boxen(profileCard, {
+                padding: 1,
+                margin: { top: 1, bottom: 1 },
+                borderStyle: 'round',
+                borderColor: 'cyan',
+                title: chalk.bold('👤 PERFIL DE USUARIO'),
+                titleAlignment: 'center'
+            })
+        );
 
         const updatePhone = await text({ message: 'Actualizar teléfono (dejar vacío para mantener):' });
         if (!isCancel(updatePhone) && updatePhone.trim()) {
@@ -146,7 +232,7 @@ export class ClientMenu {
 
     // 2. MIS PROPUESTAS RECIBIDAS
     async proposalsModule() {
-        UI.displayHeader('2. Mis Propuestas Recibidas');
+        UI.displayHeader('Portal de Clientes > Mis Propuestas');
 
         const spinner = UI.createSpinner('Cargando propuestas...').start();
         try {
@@ -154,12 +240,18 @@ export class ClientMenu {
             spinner.stop();
 
             if (proposals.length === 0) {
-                console.log(chalk.yellow('\nNo tienes propuestas registradas.\n'));
+                this.renderEmptyState('SIN PROPUESTAS REGISTRADAS', 'No se encontraron propuestas enviadas a tu cuenta en este momento.');
                 await text({ message: 'Presiona ENTER para continuar...' });
                 return;
             }
 
-            const rows = proposals.map(p => [p._id.toString(), p.title, `$${p.price}`, p.status.toUpperCase(), p.deadline]);
+            const rows = proposals.map(p => [
+                p._id.toString(),
+                p.title,
+                `$${p.price}`,
+                this.renderBadge(p.status),
+                p.deadline ? dayjs(p.deadline).format('YYYY-MM-DD') : 'N/A'
+            ]);
             UI.renderTable(['ID Propuesta', 'Título', 'Precio', 'Estado', 'Plazo'], rows);
 
             const propId = await text({ message: 'ID de la propuesta a responder (dejar vacío para omitir):' });
@@ -204,7 +296,7 @@ export class ClientMenu {
 
     // 3. ESTADO DE PROYECTOS Y AVANCES
     async projectsModule() {
-        UI.displayHeader('3. Mis Proyectos en Curso');
+        UI.displayHeader('Portal de Clientes > Mis Proyectos');
 
         const spinner = UI.createSpinner('Cargando tus proyectos...').start();
         try {
@@ -212,9 +304,14 @@ export class ClientMenu {
             spinner.stop();
 
             if (projects.length === 0) {
-                console.log(chalk.yellow('\nNo tienes proyectos activos en este momento.\n'));
+                this.renderEmptyState('SIN PROYECTOS ACTIVOS', 'No tienes proyectos en desarrollo vinculados a tu cuenta actualmente.');
             } else {
-                const rows = projects.map(p => [p._id.toString(), p.name, p.status.toUpperCase(), `${p.progress || 0}%`]);
+                const rows = projects.map(p => [
+                    p._id.toString(),
+                    p.name,
+                    this.renderBadge(p.status),
+                    this.renderProgressBar(p.progress || 0)
+                ]);
                 UI.renderTable(['ID Proyecto', 'Nombre Proyecto', 'Estado', 'Avance'], rows);
             }
         } catch (e) {
@@ -226,7 +323,7 @@ export class ClientMenu {
 
     // 4. MIS CONTRATOS
     async contractsModule() {
-        UI.displayHeader('4. Mis Contratos');
+        UI.displayHeader('Portal de Clientes > Mis Contratos');
 
         const spinner = UI.createSpinner('Cargando proyectos y contratos...').start();
         try {
@@ -237,9 +334,15 @@ export class ClientMenu {
             spinner.stop();
 
             if (contracts.length === 0) {
-                console.log(chalk.yellow('\nNo se encontraron contratos vigentes vinculados a tus proyectos.\n'));
+                this.renderEmptyState('SIN CONTRATOS VIGENTES', 'No se encontraron contratos vigentes vinculados a tus proyectos.');
             } else {
-                const rows = contracts.map(c => [c._id.toString(), c.projectId.toString(), `$${c.totalValue}`, c.startDate, c.endDate]);
+                const rows = contracts.map(c => [
+                    c._id.toString(),
+                    c.projectId.toString(),
+                    `$${c.totalValue}`,
+                    c.startDate ? dayjs(c.startDate).format('YYYY-MM-DD') : 'N/A',
+                    c.endDate ? dayjs(c.endDate).format('YYYY-MM-DD') : 'N/A'
+                ]);
                 UI.renderTable(['ID Contrato', 'ID Proyecto', 'Valor Total', 'Inicio', 'Fin'], rows);
             }
         } catch (e) {
@@ -251,7 +354,7 @@ export class ClientMenu {
 
     // 5. REVISIÓN Y APROBACIÓN DE ENTREGABLES
     async deliverablesModule() {
-        UI.displayHeader('5. Entregables de Mis Proyectos');
+        UI.displayHeader('Portal de Clientes > Entregables de Mis Proyectos');
 
         const spinner = UI.createSpinner('Buscando proyectos...').start();
         try {
@@ -259,7 +362,7 @@ export class ClientMenu {
             spinner.stop();
 
             if (projects.length === 0) {
-                console.log(chalk.yellow('\nNo cuentas con proyectos activos para revisar entregables.\n'));
+                this.renderEmptyState('SIN PROYECTOS ACTIVOS', 'No cuentas con proyectos activos para revisar entregables.');
                 await text({ message: 'Presiona ENTER para continuar...' });
                 return;
             }
@@ -268,12 +371,18 @@ export class ClientMenu {
             const deliverables = await this.deliverablesCollection.find({ projectId: { $in: projectIds } }).toArray();
 
             if (deliverables.length === 0) {
-                console.log(chalk.yellow('\nNo existen entregables asignados a tus proyectos.\n'));
+                this.renderEmptyState('SIN ENTREGABLES PENDIENTES', 'No existen entregables asignados para revisión en tus proyectos.');
                 await text({ message: 'Presiona ENTER para continuar...' });
                 return;
             }
 
-            const rows = deliverables.map(d => [d._id.toString(), d.projectId.toString(), d.title, d.status.toUpperCase(), d.deadline]);
+            const rows = deliverables.map(d => [
+                d._id.toString(),
+                d.projectId.toString(),
+                d.title,
+                this.renderBadge(d.status),
+                d.deadline ? dayjs(d.deadline).format('YYYY-MM-DD') : (d.dueDate ? dayjs(d.dueDate).format('YYYY-MM-DD') : 'N/A')
+            ]);
             UI.renderTable(['ID Entregable', 'ID Proyecto', 'Título', 'Estado', 'Fecha Límite'], rows);
 
             const delivId = await text({ message: 'ID del entregable a evaluar (dejar vacío para volver):' });
@@ -301,7 +410,7 @@ export class ClientMenu {
 
     // 6. ESTADO DE CUENTA Y REGISTRO DE PAGOS
     async financesModule() {
-        UI.displayHeader('6. Estado de Cuenta y Pagos');
+        UI.displayHeader('Portal de Clientes > Estado de Cuenta y Pagos');
 
         const spinner = UI.createSpinner('Cargando historial financiero...').start();
         try {
@@ -312,10 +421,16 @@ export class ClientMenu {
             spinner.stop();
 
             if (finances.length > 0) {
-                const rows = finances.map(r => [r._id.toString(), r.concept, `$${r.amount}`, r.type.toUpperCase(), UI.formatDate(r.date)]);
+                const rows = finances.map(r => [
+                    r._id.toString(),
+                    r.concept || r.description || 'N/A',
+                    `$${r.amount}`,
+                    this.renderBadge(r.type),
+                    UI.formatDate ? UI.formatDate(r.date || r.createdAt) : dayjs(r.date || r.createdAt).format('YYYY-MM-DD')
+                ]);
                 UI.renderTable(['ID Transacción', 'Concepto', 'Monto', 'Tipo', 'Fecha'], rows);
             } else {
-                console.log(chalk.yellow('\nNo hay registros financieros previos para tus proyectos.\n'));
+                this.renderEmptyState('SIN HISTORIAL FINANCIERO', 'No hay registros financieros o pagos previos vinculados a tus proyectos.');
             }
 
             const makePayment = await select({
@@ -352,6 +467,32 @@ export class ClientMenu {
                     });
 
                     txSpinner.succeed(chalk.green('Pago verificado y registrado exitosamente.'));
+
+                    // Obtención del proyecto para personalizar el comprobante impreso
+                    const targetProject = projects.find(p => p._id.toString() === projId.trim());
+                    const projectName = targetProject ? targetProject.name : projId.trim();
+
+                    // Impresión del Comprobante / Recibo Digital
+                    const receiptContent = [
+                        chalk.bold.cyan('🧾 COMPROBANTE DE TRANSACCIÓN ATÓMICA'),
+                        '────────────────────────────────────────────────────────',
+                        `• Proyecto:     ${projectName}`,
+                        `• Referencia:   ${ref.trim()}`,
+                        `• Monto Abonado: $ ${parseFloat(amountStr).toFixed(2)} USD`,
+                        `• Fecha:        ${dayjs().format('YYYY-MM-DD HH:mm:ss')}`,
+                        `• Estado:       ${chalk.green.bold('[✔ REGISTRADO EN MONGODB]')}`,
+                        '────────────────────────────────────────────────────────'
+                    ].join('\n');
+
+                    console.log(
+                        boxen(receiptContent, {
+                            padding: 1,
+                            margin: { top: 1, bottom: 1 },
+                            borderStyle: 'double',
+                            borderColor: 'green'
+                        })
+                    );
+
                 } catch (e) {
                     txSpinner.fail(`Error al procesar el pago: ${e.message}`);
                 } finally {
