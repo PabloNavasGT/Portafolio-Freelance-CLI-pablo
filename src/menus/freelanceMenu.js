@@ -233,13 +233,13 @@ async show() {
 
         const name = await text({
             message: 'Nombre del Cliente:',
-            validate: val => val.trim().length === 0 ? 'El nombre es requerido' : undefined
+            validate: val => (!val || val.trim().length === 0) ? 'El nombre es requerido' : undefined
         });
         if (isCancel(name)) return;
 
         const email = await text({
             message: 'Correo Electrónico:',
-            validate: val => !validator.isEmail(val) ? 'Ingrese un email válido' : undefined
+            validate: val => (!val || !validator.isEmail(val)) ? 'Ingrese un email válido' : undefined
         });
         if (isCancel(email)) return;
 
@@ -248,9 +248,9 @@ async show() {
 
         const spinner = UI.createSpinner('Guardando cliente en base de datos...').start();
         await this.clientsCollection.insertOne({
-            name,
-            email,
-            phone: phone || 'N/A',
+            name: name.trim(),
+            email: email.trim(),
+            phone: phone?.trim() || 'N/A',
             createdAt: new Date()
         });
         spinner.succeed(chalk.green(`${UI.symbols.success} Cliente registrado con éxito.`));
@@ -269,7 +269,7 @@ async show() {
 
         const email = await text({
             message: 'Nuevo Correo Electrónico (Dejar en blanco para mantener actual):',
-            validate: val => (val.trim() && !validator.isEmail(val)) ? 'Ingrese un email válido' : undefined
+            validate: val => (val && val.trim() !== '' && !validator.isEmail(val)) ? 'Ingrese un email válido' : undefined
         });
         if (isCancel(email)) return;
 
@@ -277,9 +277,9 @@ async show() {
         if (isCancel(phone)) return;
 
         const updateData = {};
-        if (name.trim()) updateData.name = name.trim();
-        if (email.trim()) updateData.email = email.trim();
-        if (phone.trim()) updateData.phone = phone.trim();
+        if (name && name.trim()) updateData.name = name.trim();
+        if (email && email.trim()) updateData.email = email.trim();
+        if (phone && phone.trim()) updateData.phone = phone.trim();
 
         if (Object.keys(updateData).length === 0) {
             await text({ message: 'No se realizaron cambios. Presione ENTER para continuar...' });
@@ -316,7 +316,8 @@ async show() {
         await text({ message: 'Presione ENTER para continuar...' });
     }
 
-    async proposalsSubMenu() {
+    // submodulo gestion de propuestas
+ async proposalsSubMenu() {
         while (true) {
             UI.displayHeader('> Modo Freelancer > Gestion de Propuestas');
 
@@ -324,6 +325,8 @@ async show() {
                 message: 'Operaciones de Propuestas:',
                 options: [
                     { value: 'list', label: 'Listar Propuestas' },
+                    { value: 'create', label: 'Crear Nueva Propuesta' },
+                    { value: 'change_status', label: 'Cambiar Estado de Propuesta' },
                     { value: 'back', label: 'Volver' }
                 ]
             });
@@ -331,7 +334,29 @@ async show() {
             if (isCancel(action) || action === 'back') break;
 
             if (action === 'list') await this.listProposals();
+            if (action === 'create') await this.createProposal();
+            if (action === 'change_status') await this.changeProposalStatus();
         }
+    }
+
+    async selectProposalInteractive() {
+        const proposals = await this.proposalsCollection.find().toArray();
+        if (!proposals.length) {
+            this.renderEmptyStateBox('propuestas', 'Crea una propuesta primero.');
+            return null;
+        }
+
+        const choices = proposals.map(p => ({
+            value: p._id.toString(),
+            label: `${p.title || 'Sin título'} - $${p.price || 0} - ${this.getBadge('proposals', p.status)}`
+        }));
+
+        const selectedId = await select({
+            message: 'Seleccione una Propuesta de la lista:',
+            options: choices
+        });
+
+        return isCancel(selectedId) ? null : selectedId;
     }
 
     async listProposals() {
@@ -341,10 +366,12 @@ async show() {
         if (!proposals.length) {
             this.renderEmptyStateBox('propuestas', 'No existen propuestas registradas actualmente.');
         } else {
-            const headers = ['ID', 'Título / Nombre', 'Estado'];
+            const headers = ['ID', 'Título', 'Precio ($)', 'Plazo', 'Estado'];
             const rows = proposals.map(pr => [
                 pr._id.toString(),
-                pr.title || pr.name || 'Sin título',
+                pr.title || 'Sin título',
+                `$${(pr.price || 0).toFixed(2)}`,
+                pr.deadline || 'N/A',
                 this.getBadge('proposals', pr.status)
             ]);
             UI.renderTable(headers, rows);
@@ -353,165 +380,170 @@ async show() {
         await text({ message: 'Presione ENTER para continuar...' });
     }
 
-    // submodulo: gestion de proyectos
-    async projectsSubMenu() {
-        while (true) {
-            UI.displayHeader('> Modo Freelancer > Gestion de Proyectos');
+    async createProposal() {
+        UI.displayHeader('> Modo Freelancer > Gestion de Propuestas > Crear Propuesta');
 
-            const action = await select({
-                message: 'Operaciones de Proyectos:',
-                options: [
-                    { value: 'list', label: 'Listar Proyectos (Con Progreso Visual)' },
-                    { value: 'update_progress', label: 'Actualizar Avance de Proyecto' },
-                    { value: 'back', label: 'Volver' }
-                ]
-            });
+        const clientId = await this.selectClientInteractive();
+        if (!clientId) return;
 
-            if (isCancel(action) || action === 'back') break;
+        const title = await text({
+            message: 'Título de la Propuesta:',
+            validate: val => (!val || val.trim().length === 0) ? 'El título es requerido' : undefined
+        });
+        if (isCancel(title)) return;
 
-            if (action === 'list') await this.listProjects();
-            if (action === 'update_progress') await this.updateProjectProgress();
-        }
-    }
+        const description = await text({
+            message: 'Descripción del Trabajo / Alcance:',
+            validate: val => (!val || val.trim().length === 0) ? 'La descripción es requerida' : undefined
+        });
+        if (isCancel(description)) return;
 
-    async listProjects() {
-        UI.displayHeader('> Modo Freelancer > Gestion de Proyectos > Listar Proyectos');
-        const projects = await this.projectsCollection.find().toArray();
-
-        if (!projects.length) {
-            this.renderEmptyStateBox('proyectos', 'Utiliza la opción de registro de proyectos para vincular uno nuevo.');
-        } else {
-            const headers = ['ID Proyecto', 'Nombre', 'Estado', 'Progreso de Avance'];
-            const rows = projects.map(pr => [
-                pr._id.toString(),
-                pr.name || 'Sin título',
-                this.getBadge('projects', pr.status),
-                this.renderInlineProgressBar(pr.progress || 0, 12)
-            ]);
-            UI.renderTable(headers, rows);
-        }
-
-        await text({ message: 'Presione ENTER para continuar...' });
-    }
-
-    async updateProjectProgress() {
-        UI.displayHeader('> Modo Freelancer > Gestion de Proyectos > Actualizar Avance');
-
-        const projectId = await this.selectProjectInteractive();
-        if (!projectId) return;
-
-        const newProgress = await text({
-            message: 'Ingrese el nuevo porcentaje de avance (0 - 100):',
+        const price = await text({
+            message: 'Precio estimado ($):',
             validate: val => {
                 const num = Number(val);
-                if (isNaN(num) || num < 0 || num > 100) return 'Ingrese un número válido entre 0 y 100';
+                if (isNaN(num) || num <= 0) return 'Ingrese un precio válido mayor a 0';
             }
         });
-        if (isCancel(newProgress)) return;
+        if (isCancel(price)) return;
 
-        const spinner = UI.createSpinner('Actualizando estado del proyecto...').start();
-        await this.projectsCollection.updateOne(
-            { _id: new ObjectId(projectId) },
-            { $set: { progress: Number(newProgress), updatedAt: new Date() } }
-        );
-        spinner.succeed(chalk.green(`${UI.symbols.success} Avance de proyecto actualizado correctamente.`));
-
-        await text({ message: 'Presione ENTER para continuar...' });
-    }
-
-    // submodulo: gestion de entregables
-
-    async deliverablesSubMenu() {
-        while (true) {
-            UI.displayHeader('> Modo Freelancer > Gestion de Entregables');
-
-            const action = await select({
-                message: 'Operaciones de Entregables:',
-                options: [
-                    { value: 'delete_acid', label: 'Eliminar Entregable con Transaccion ACID' },
-                    { value: 'back', label: 'Volver' }
-                ]
-            });
-
-            if (isCancel(action) || action === 'back') break;
-
-            if (action === 'delete_acid') await this.deleteDeliverableWithTransaction();
-        }
-    }
-
-    async deleteDeliverableWithTransaction() {
-        UI.displayHeader('> Modo Freelancer > Gestion de Entregables > Eliminacion Atomica ACID');
-
-        const deliverableId = await this.selectDeliverableInteractive();
-        if (!deliverableId) return;
-
-        const confirmDelete = await confirm({
-            message: `¿Está seguro de ejecutar la eliminación atómica del entregable ID #${deliverableId}?`
+        const deadline = await text({
+            message: 'Plazo de entrega (ej. "15 días", "2026-09-30"):',
+            validate: val => (!val || val.trim().length === 0) ? 'El plazo es requerido' : undefined
         });
-        if (!confirmDelete || isCancel(confirmDelete)) return;
+        if (isCancel(deadline)) return;
+
+        const status = await select({
+            message: 'Estado inicial de la propuesta:',
+            options: [
+                { value: 'pendiente', label: 'Pendiente' },
+                { value: 'aceptada', label: 'Aceptada (Generará proyecto automáticamente)' },
+                { value: 'rechazada', label: 'Rechazada' }
+            ]
+        });
+        if (isCancel(status)) return;
 
         const client = Database.getClient();
         const session = client.startSession();
-
-        let statusText = '';
-        let reasonText = '';
-        let isSuccess = false;
-
-        const spinner = UI.createSpinner('Ejecutando sesión de transacción atómica ACID...').start();
+        const spinner = UI.createSpinner('Guardando propuesta...').start();
 
         try {
             session.startTransaction();
 
-            const deleteResult = await this.deliverablesCollection.deleteOne(
-                { _id: new ObjectId(deliverableId) },
-                { session }
-            );
+            const proposalDoc = {
+                clientId: new ObjectId(clientId),
+                title: title.trim(),
+                description: description.trim(),
+                price: Number(price),
+                deadline: deadline.trim(),
+                status,
+                createdAt: new Date()
+            };
 
-            if (deleteResult.deletedCount === 1) {
-                await session.commitTransaction();
-                isSuccess = true;
-                statusText = chalk.green('[ COMMIT / ELIMINACION EXITOSA ]');
-                reasonText = 'Entregable y referencias desvinculadas correctamente';
-                spinner.succeed(chalk.green(`${UI.symbols.success} Transacción atómica completada.`));
-            } else {
-                await session.abortTransaction();
-                isSuccess = false;
-                statusText = chalk.red('[ ABORTED / ROLLBACK EJECUTADO ]');
-                reasonText = 'Entregable no encontrado o ya desvinculado';
-                spinner.fail(chalk.yellow(`${UI.symbols.warning} Transacción abortada. Aplicando Rollback.`));
+            const propResult = await this.proposalsCollection.insertOne(proposalDoc, { session });
+
+            let projectCreated = false;
+            if (status === 'aceptada') {
+                await this.projectsCollection.insertOne({
+                    name: title.trim(),
+                    clientId: new ObjectId(clientId),
+                    proposalId: propResult.insertedId,
+                    status: 'activo',
+                    progress: 0,
+                    budget: Number(price),
+                    createdAt: new Date()
+                }, { session });
+                projectCreated = true;
             }
+
+            await session.commitTransaction();
+            const successMsg = projectCreated 
+                ? 'Propuesta creada y Proyecto activado automáticamente.' 
+                : 'Propuesta guardada exitosamente.';
+            spinner.succeed(chalk.green(`${UI.symbols.success} ${successMsg}`));
         } catch (error) {
             await session.abortTransaction();
-            isSuccess = false;
-            statusText = chalk.red('[ ABORTED / ROLLBACK ERROR ]');
-            reasonText = `Excepción en DB: ${error.message}`;
-            spinner.fail(chalk.red(`${UI.symbols.error} Error crítico en transacción.`));
+            spinner.fail(chalk.red(`${UI.symbols.error} Error al guardar propuesta: ${error.message}`));
         } finally {
             await session.endSession();
         }
 
-        // Ticket visual de transacción impreso con Boxen
-        const ticketContent = [
-            chalk.bold.cyan('RESULTADO DE OPERACION ATOMICA (TRANSACTION SESSION)'),
-            '─'.repeat(58),
-            `Status:      ${statusText}`,
-            `Operaciones: Eliminación de Entregable #${deliverableId.substring(0, 10)}...`,
-            `Razón:       ${reasonText}`,
-            `Integridad:  ${isSuccess ? chalk.green('[ BASE DE DATOS ACTUALIZADA ]') : chalk.yellow('[ BASE DE DATOS PROTEGIDA SIN CAMBIOS ]')}`
-        ].join('\n');
-
-        console.log(
-            boxen(ticketContent, {
-                padding: 1,
-                margin: { top: 1, bottom: 1 },
-                borderStyle: 'round',
-                borderColor: isSuccess ? 'green' : 'red'
-            })
-        );
-
         await text({ message: 'Presione ENTER para continuar...' });
     }
 
+    async changeProposalStatus() {
+        UI.displayHeader('> Modo Freelancer > Gestion de Propuestas > Cambiar Estado');
+
+        const proposalId = await this.selectProposalInteractive();
+        if (!proposalId) return;
+
+        const proposal = await this.proposalsCollection.findOne({ _id: new ObjectId(proposalId) });
+        if (!proposal) return;
+
+        const newStatus = await select({
+            message: `Estado actual: ${proposal.status}. Seleccione el nuevo estado:`,
+            options: [
+                { value: 'pendiente', label: 'Pendiente' },
+                { value: 'aceptada', label: 'Aceptada (Generará proyecto)' },
+                { value: 'rechazada', label: 'Rechazada' }
+            ]
+        });
+        if (isCancel(newStatus) || newStatus === proposal.status) {
+            await text({ message: 'Sin cambios. Presione ENTER para continuar...' });
+            return;
+        }
+
+        const client = Database.getClient();
+        const session = client.startSession();
+        const spinner = UI.createSpinner('Actualizando estado de la propuesta...').start();
+
+        try {
+            session.startTransaction();
+
+            await this.proposalsCollection.updateOne(
+                { _id: new ObjectId(proposalId) },
+                { $set: { status: newStatus, updatedAt: new Date() } },
+                { session }
+            );
+
+            let projectCreated = false;
+
+            if (newStatus === 'aceptada') {
+                const existingProject = await this.projectsCollection.findOne(
+                    { proposalId: new ObjectId(proposalId) },
+                    { session }
+                );
+
+                if (!existingProject) {
+                    await this.projectsCollection.insertOne({
+                        name: proposal.title || 'Proyecto desde Propuesta',
+                        clientId: proposal.clientId,
+                        proposalId: new ObjectId(proposalId),
+                        status: 'activo',
+                        progress: 0,
+                        budget: proposal.price || 0,
+                        createdAt: new Date()
+                    }, { session });
+                    projectCreated = true;
+                }
+            }
+
+            await session.commitTransaction();
+
+            const msg = projectCreated
+                ? 'Propuesta ACEPTADA y Proyecto automático generado.'
+                : 'Estado de propuesta actualizado correctamente.';
+
+            spinner.succeed(chalk.green(`${UI.symbols.success} ${msg}`));
+        } catch (error) {
+            await session.abortTransaction();
+            spinner.fail(chalk.red(`${UI.symbols.error} Error en transacción: ${error.message}`));
+        } finally {
+            await session.endSession();
+        }
+
+        await text({ message: 'Presione ENTER para continuar...' });
+    }
     // submodulo: gestion financiera
     async financesSubMenu() {
         while (true) {
