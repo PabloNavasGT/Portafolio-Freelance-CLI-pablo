@@ -247,3 +247,61 @@ async createClient() {
     await text({ message: "Presion ENTER para continuar..."});
 }
 
+// Submodulo: Gestion de Proyectos
+
+async projectsSubmenu() {
+    while (true) {
+        UI.displayHeader('> Modo Freelancer > Gestion de proyectos');
+        
+        const action = await select({
+            message: 'Opreraciones de proyectos:',
+            options: [
+                { value: 'list', label: 'Listar Proyectos'},
+                { value: 'update_progress', label: 'Actualizar avance de Proyecto' },
+                { value: 'back', label: 'volver' }
+            ]
+        });
+
+        if(isCancel(acction) || action === 'back') break;
+
+        if (action === 'list') await this.listProjects();
+        if (action === 'update_progress') await this.updateProjectProgress();
+    }
+}
+
+async listProjects() {
+    UI.displayHeader('> Modo Freelancer > Gestion de Proyectos > Listar proyectos');
+    const projects = await this.projectsCollection.find().toArray();
+
+    if (!projects.length) {
+        this.renderEmptyStateBox('proyectos', 'Utiliza la opcion de registro de proyectos para vinculuar uno nuevo.');
+    } else {
+        const headers = ['ID Proyecto', 'Nombre', 'Estado', 'Progreso de Avance'];
+        const rows = projects.map(pr => [
+            pr._id.toString(),
+            pr.name || 'Sin titulo',
+            
+        ]);
+        UI.renderTable(headers, rows);
+    }
+
+    await text({ message: 'Presione ENTER para continuar...'});
+}
+
+async updateProjectProgress() {
+    UI.displayHeader('> Modo Freelancer > Gestion de proyectos > Actualizar Avance');
+
+    const projectId = await this.selectProyectInteractive();
+    if(!proyectId) return;
+
+    const newProgress = await text({
+        message: 'Ingrese el nuevo porcentaje de avance (0 - 100):',
+        validate: val => {
+            if (isNaN(numb) || num < 0 || num > 100) return 'Ingrese un numero valido entre 0 y 100';
+        }
+    });
+    spinner.succed(chalk.green(`${UI.symbols.success} Avance de proyecto actualizado correctamente.`));
+
+    await text({ message: 'Presione ENTER para continuar...'});
+}
+
