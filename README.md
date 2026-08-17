@@ -1,12 +1,18 @@
 # Portafolio Freelance CLI
 
-Una aplicacion de consola (CLI) interactiva desarrollada en Node.js y MongoDB para la gestion integral del ciclo de vida de proyectos freelance. Facilita la administracion de propuestas, contratos, entregables, aprobaciones del cliente y finanzas con transacciones atomicas ACID.
-
 <p align="center">
   <img src="https://img.shields.io/badge/Node.js-43853D?style=for-the-badge&logo=node.js&logoColor=white" alt="Node.js" />
   <img src="https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black" alt="JavaScript" />
   <img src="https://img.shields.io/badge/MongoDB-47A248?style=for-the-badge&logo=mongodb&logoColor=white" alt="MongoDB" />
 </p>
+
+Una aplicacion de consola (CLI) interactiva desarrollada en Node.js y MongoDB para la gestion integral del ciclo de vida de proyectos freelance. Facilita la administracion de propuestas, contratos, entregables, aprobaciones del cliente y finanzas con transacciones atomicas ACID.
+
+---
+
+# Estructura del proyecto
+
+
 
 ---
 
