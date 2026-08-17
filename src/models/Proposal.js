@@ -1,46 +1,59 @@
-class proposalModel {
+import { ObjectId } from 'mongodb';
 
-constructor(clientId, title, description, price, deadline, status = 'pendiente') {
-    this.clientId = clientId
-    this.title = title
-    this.description = description
-    this.price = price
-    this.deadline = deadline
-    this.status = status
+export default class Proposal {
+  constructor({ clientId = null, title, description = '', price, deadline = null, status = 'pendiente', _id = null }) {
+    this._id = _id ? new ObjectId(_id) : null;
+    this.clientId = clientId ? new ObjectId(clientId) : null;
+    this.title = title;
+    this.description = description;
+    this.price = Number(price) || 0;
+    this.deadline = deadline ? new Date(deadline) : null;
+    this.status = status;
+    this.createdAt = new Date();
   }
 
   validarReglasBase() {
     if (this.price < 0) {
-      console.log("nada de numero negativos porfavor")
-      return false
+      console.log("El precio no puede ser negativo");
+      return false;
     }
 
-    let estadosBuenos = ['pendiente', 'aceptada', 'rechazada']
-    if (!estadosBuenos.includes(this.status)) {
-      console.log(" propuesta no existente")
-      return false
+    const estadosValidos = ['pendiente', 'aceptada', 'rechazada'];
+    if (!estadosValidos.includes(this.status)) {
+      console.log("Estado de propuesta no válido");
+      return false;
     }
 
-    return true
+    return true;
   }
 
+  // Genera el objeto de proyecto alineado con la estructura BSON/JSON Schema de MongoDB
   convertirAProyecto() {
-    if (this.status == 'aceptada') {
-      let datosParaProyecto = {
+    if (this.status === 'aceptada') {
+      return {
+        name: `Proyecto derivado: ${this.title}`,
+        description: this.description,
         clientId: this.clientId,
-        proposalId: this._id,
-        nombre: 'Proyecto generado de: ' + this.title,
-        descripcionOriginal: this.description,
-        estado: 'activo',
-        porcentajeAvance: 0,
-        presupuesto: this.price,
-        fechaInicio: new Date()
-      }
-      return datosParaProyecto
-    } else {
-      console.log("La propuesta tendra que se afirmada por proyectos")
-      return null
+        status: 'activo',
+        progress: 0,
+        budget: this.price,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
     }
-  }}
+    console.log("La propuesta debe estar en estado 'aceptada' para convertirse en proyecto");
+    return null;
+  }
 
-module.exports = proposalModel
+  toDocument() {
+    const doc = {
+      title: this.title,
+      price: this.price,
+      status: this.status,
+      clientId: this.clientId,
+      createdAt: this.createdAt
+    };
+    if (this._id) doc._id = this._id;
+    return doc;
+  }
+}

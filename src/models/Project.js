@@ -1,74 +1,77 @@
-class projectModel {
-    
-  constructor(clientId, proposalId, name, status = 'activo', progress = 0) {
-    this.clientId = clientId
-    this.proposalId = proposalId
-    this.name = name
-    this.status = status
-    this.progress = progress
-    this.logs = []
-    this.createdAt = new Date()
+import { ObjectId } from 'mongodb';
+
+export default class Project {
+  constructor({ clientId, name, budget, description = '', contractId = null, status = 'activo', progress = 0, _id = null }) {
+    this._id = _id ? new ObjectId(_id) : null;
+    this.clientId = clientId ? new ObjectId(clientId) : null;
+    this.contractId = contractId ? new ObjectId(contractId) : null;
+    this.name = name;
+    this.description = description;
+    this.budget = Number(budget) || 0;
+    this.status = status;
+    this.progress = Number(progress) || 0;
+    this.logs = [];
+    this.createdAt = new Date();
+    this.updatedAt = new Date();
   }
 
-  // Control de estados
   validarEstado(nuevoEstado) {
-    var estadosPermitidos = ['activo', 'pausado', 'finalizado', 'cancelado']
-
+    const estadosPermitidos = ['activo', 'pausado', 'finalizado', 'cancelado'];
     if (estadosPermitidos.includes(nuevoEstado)) {
-      return true
-    } else {
-      console.log("El estado no es valido")
-      return false
+      return true;
     }
+    console.log("El estado no es válido");
+    return false;
   }
 
   cambiarEstado(nuevoEstado) {
     if (this.validarEstado(nuevoEstado)) {
-      this.status = nuevoEstado
-      return true
+      this.status = nuevoEstado;
+      this.updatedAt = new Date();
+      return true;
     }
-    return false
+    return false;
   }
 
-  // Validacion de progreso
   validarPorcentaje(porcentaje) {
-    if (typeof porcentaje !== 'number') {
-      console.log("El porcentaje debe ser un valor numerico")
-      return false
+    if (typeof porcentaje !== 'number' || isNaN(porcentaje)) {
+      console.log("El porcentaje debe ser un valor numérico");
+      return false;
     }
-
     if (porcentaje >= 0 && porcentaje <= 100) {
-      return true
-    } else {
-      console.log("El porcentaje de avance debe estar estrictamente entre 0 y 100")
-      return false
-    }}
-  // Formateo de Logs
-  formatearLog(note, percentage) {
-    if (!this.validarPorcentaje(percentage)) {
-      return null
+      return true;
     }
-
-    let nuevoLog = {
-      note: note,
-      percentage: percentage,
-      date: new Date()
-    }
-
-    return nuevoLog
+    console.log("El porcentaje de avance debe estar entre 0 y 100");
+    return false;
   }
-  // Reistrar avance en bitacora
+
   registrarAvance(note, percentage) {
-    let logEstructurado = this.formatearLog(note, percentage)
-
-    if (logEstructurado != null) {
-      this.progress = percentage
-      this.logs.push(logEstructurado)
-      console.log("Avance registrado con exito, felicidadeeees!")
-      return true
+    if (this.validarPorcentaje(percentage)) {
+      this.progress = percentage;
+      this.logs.push({
+        note,
+        percentage,
+        date: new Date()
+      });
+      this.updatedAt = new Date();
+      return true;
     }
+    return false;
+  }
 
-    return false
-  }}
-
-module.exports = projectModel
+  toDocument() {
+    const doc = {
+      name: this.name,
+      description: this.description,
+      clientId: this.clientId,
+      contractId: this.contractId,
+      status: this.status,
+      progress: this.progress,
+      budget: this.budget,
+      createdAt: this.createdAt,
+      updatedAt: this.updatedAt
+    };
+    if (this._id) doc._id = this._id;
+    return doc;
+  }
+}
