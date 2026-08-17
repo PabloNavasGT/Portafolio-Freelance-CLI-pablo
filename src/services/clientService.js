@@ -1,47 +1,45 @@
-class clientService {
+export default class ClientService {
 
-  constructor(clientRepository, clientModel) {
-    this.clientRepo = clientRepository
-    this.modelo = clientModel
+  constructor(clientRepository, ClientModel) {
+    this.clientRepo = clientRepository;
+    this.ClientModel = ClientModel;
   }
 
-  // Autenticar cliente
+  //Autentica a un cliente validando sus credenciales de acceso.
   async authenticateClient(email, password) {
-    console.log("Buscando el cliente para iniciar sesion...")
-    let clienteEncontrado = await this.clientRepo.findByEmail(email)
+    console.log("Buscando el cliente para iniciar sesión...");
+    
+    // Búsqueda directa por credenciales en el repositorio
+    const clienteEncontrado = await this.clientRepo.findByCredentials(email, password);
 
-    if (clienteEncontrado == null) {
-      console.log("El cliente no existe en la base de datos")
-      return false
+    if (!clienteEncontrado) {
+      console.log("Credenciales inválidas o el cliente no existe.");
+      return false;
     }
 
-    if (clienteEncontrado.password == password) {
-      console.log("Sesion iniciada con exito")
-      return clienteEncontrado
-    } else {
-      console.log("Contraseña incorrecta")
-      return false
-    }
+    console.log("Sesión iniciada con éxito.");
+    return clienteEncontrado;
   }
+
+  //Registra un nuevo cliente verificando previamente que el correo no esté duplicado.
   async registerClient(clientData) {
-    console.log("Validando si el correo ya existe...")
-    let existeCorreo = await this.clientRepo.findByEmail(clientData.email)
+    console.log("Validando disponibilidad del correo electrónico...");
+    
+    // Verificación de duplicados antes de instanciar el modelo
+    const listaClientes = await this.clientRepo.findAll();
+    const existeCorreo = listaClientes.some(c => c.email === clientData.email);
 
     if (existeCorreo) {
-      console.log("correo duplicado por lo tanto denegado")
-      return false
+      console.log("Error: El correo electrónico ya se encuentra registrado.");
+      return false;
     }
 
-    var nuevoCliente = new this.modelo(
-      clientData.name, 
-      clientData.email, 
-      clientData.password, 
-      clientData.phone
-    )
+    // Instanciación del modelo de dominio si se proporciona la clase
+    const nuevoCliente = this.ClientModel 
+      ? new this.ClientModel(clientData.name, clientData.email, clientData.password, clientData.phone)
+      : clientData;
 
-    let reultado = await this.clientRepo.create(nuevoCliente)
-    return reultado
+    const resultado = await this.clientRepo.create(nuevoCliente);
+    return resultado;
   }
 }
-
-module.exports = clientService

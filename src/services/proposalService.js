@@ -1,37 +1,45 @@
-class proposalService {
+/**
+ * @file proposalService.js
+ * @description Capa de servicio encargada de las propuestas comerciales y su conversión en proyectos activos.
+ */
 
+export default class ProposalService {
+  /**
+   * @param {Object} proposalRepository - Repositorio de propuestas.
+   * @param {Object} projectRepository - Repositorio de proyectos.
+   * @param {Object} clientRepository - Repositorio de clientes.
+   */
   constructor(proposalRepository, projectRepository, clientRepository) {
-    this.proposalRepo = proposalRepository
-    this.projectRepo = projectRepository
-    this.clientRepo = clientRepository
+    this.proposalRepo = proposalRepository;
+    this.projectRepo = projectRepository;
+    this.clientRepo = clientRepository;
   }
 
+  //Crea una propuesta comercial verificando que el cliente asignado exista.
   async createProposal(data) {
-    console.log("existencia del cliente")
-    let clienteExiste = await this.clientRepo.findById(data.clientId)
+    console.log("Verificando existencia del cliente...");
+    const clientes = await this.clientRepo.findAll();
+    const clienteExiste = clientes.some(c => c._id.toString() === data.clientId.toString());
 
-    if (clienteExiste == null) {
-      console.log("cliente no existente")
-      return false
+    if (!clienteExiste) {
+      console.log("Error: El cliente especificado no existe en la base de datos.");
+      return false;
     }
 
-    let propuestaNueva = await this.proposalRepo.create(data)
-    return propuestaNueva
+    return await this.proposalRepo.create(data);
   }
-  async acceptProposal(proposalId) {
-    console.log("Aceptando propuesta y creando el proyecto")
-    let propuestaAceptada = await this.proposalRepo.acceptProposal(proposalId)
 
-    if (propuestaAceptada) {
-      console.log("La propuesta se acepto, porfavor manda los datos al repositorio de proyectos")
-      let propuestaCompleta = await this.proposalRepo.findById(proposalId)
-      let proyectoCreado = await this.projectRepo.createFromProposal(propuestaCompleta)
-      return proyectoCreado
+  //Acepta una propuesta comercial.
+  async acceptProposal(proposalId) {
+    console.log("Aceptando propuesta y convirtiéndola en proyecto activo vía transacción ACID...");
+    const exito = await this.proposalRepo.acceptProposal(proposalId);
+
+    if (exito) {
+      console.log("Propuesta aceptada y proyecto creado automáticamente con éxito.");
+      return true;
     } else {
-      console.log("Fallo la aceptacion de la propuesta")
-      return false
+      console.log("Fallo al aceptar la propuesta.");
+      return false;
     }
   }
 }
-
-module.exports = proposalService
