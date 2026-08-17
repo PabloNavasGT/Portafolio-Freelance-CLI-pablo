@@ -197,7 +197,141 @@ async mainMenu() {
         }
 }
 
-// SUBMÓDULO: GESTIÓN DE CLIENTES
+    // SUBMÓDULO: GESTIÓN DE CLIENTES
+
+    async clientsSubMenu() {
+        while (true) {
+            UI.displayHeader('> Modo Freelancer > Gestion de Clientes');
+
+            const action = await select({
+                message: 'Operaciones de Clientes:',
+                options: [
+                    { value: 'list', label: 'Listar Clientes' },
+                    { value: 'create', label: 'Crear Nuevo Cliente' },
+                    { value: 'update', label: 'Actualizar Cliente' },
+                    { value: 'delete', label: 'Eliminar Cliente' },
+                    { value: 'back', label: 'Volver' }
+                ]
+            });
+
+            if (isCancel(action) || action === 'back') break;
+
+            if (action === 'list') await this.listClients();
+            if (action === 'create') await this.createClient();
+            if (action === 'update') await this.updateClient();
+            if (action === 'delete') await this.deleteClient();
+        }
+    }
+
+    async listClients() {
+        UI.displayHeader('> Modo Freelancer > Gestion de Clientes > Listar Clientes');
+        const clients = await this.clientsCollection.find().toArray();
+
+        if (!clients.length) {
+            this.renderEmptyStateBox('clientes', 'Utiliza la opción "Crear Nuevo Cliente" para comenzar.');
+        } else {
+            const headers = ['ID', 'Nombre', 'Email', 'Teléfono'];
+            const rows = clients.map(c => [
+                c._id.toString(),
+                c.name || 'N/A',
+                c.email || 'N/A',
+                c.phone || 'N/A'
+            ]);
+            UI.renderTable(headers, rows);
+        }
+
+        await text({ message: 'Presione ENTER para continuar...' });
+    }
+
+    async createClient() {
+        UI.displayHeader('> Modo Freelancer > Gestion de Clientes > Crear Nuevo Cliente');
+
+        const name = await text({
+            message: 'Nombre del Cliente:',
+            validate: val => (!val || val.trim().length === 0) ? 'El nombre es requerido' : undefined
+        });
+        if (isCancel(name)) return;
+
+        const email = await text({
+            message: 'Correo Electrónico:',
+            validate: val => (!val || !validator.isEmail(val)) ? 'Ingrese un email válido' : undefined
+        });
+        if (isCancel(email)) return;
+
+        const phone = await text({ message: 'Teléfono (Opcional):' });
+        if (isCancel(phone)) return;
+
+        const spinner = UI.createSpinner('Guardando cliente en base de datos...').start();
+        await this.clientsCollection.insertOne({
+            name: name.trim(),
+            email: email.trim(),
+            phone: phone?.trim() || 'N/A',
+            createdAt: new Date()
+        });
+        spinner.succeed(chalk.green(`${UI.symbols.success} Cliente registrado con éxito.`));
+
+        await text({ message: 'Presione ENTER para continuar...' });
+    }
+
+    async updateClient() {
+        UI.displayHeader('> Modo Freelancer > Gestion de Clientes > Actualizar Cliente');
+
+        const clientId = await this.selectClientInteractive();
+        if (!clientId) return;
+
+        const name = await text({ message: 'Nuevo Nombre del Cliente (Dejar en blanco para mantener actual):' });
+        if (isCancel(name)) return;
+
+        const email = await text({
+            message: 'Nuevo Correo Electrónico (Dejar en blanco para mantener actual):',
+            validate: val => (val && val.trim() !== '' && !validator.isEmail(val)) ? 'Ingrese un email válido' : undefined
+        });
+        if (isCancel(email)) return;
+
+        const phone = await text({ message: 'Nuevo Teléfono (Dejar en blanco para mantener actual):' });
+        if (isCancel(phone)) return;
+
+        const updateData = {};
+        if (name && name.trim()) updateData.name = name.trim();
+        if (email && email.trim()) updateData.email = email.trim();
+        if (phone && phone.trim()) updateData.phone = phone.trim();
+
+        if (Object.keys(updateData).length === 0) {
+            await text({ message: 'No se realizaron cambios. Presione ENTER para continuar...' });
+            return;
+        }
+
+        updateData.updatedAt = new Date();
+
+        const spinner = UI.createSpinner('Actualizando información del cliente...').start();
+        await this.clientsCollection.updateOne(
+            { _id: new ObjectId(clientId) },
+            { $set: updateData }
+        );
+        spinner.succeed(chalk.green(`${UI.symbols.success} Cliente actualizado con éxito.`));
+
+        await text({ message: 'Presione ENTER para continuar...' });
+    }
+
+    async deleteClient() {
+        UI.displayHeader('> Modo Freelancer > Gestion de Clientes > Eliminar Cliente');
+
+        const clientId = await this.selectClientInteractive();
+        if (!clientId) return;
+
+        const confirmDelete = await confirm({
+            message: '¿Está seguro de que desea eliminar este cliente?'
+        });
+        if (!confirmDelete || isCancel(confirmDelete)) return;
+
+        const spinner = UI.createSpinner('Eliminando cliente de la base de datos...').start();
+        await this.clientsCollection.deleteOne({ _id: new ObjectId(clientId) });
+        spinner.succeed(chalk.green(`${UI.symbols.success} Cliente eliminado con éxito.`));
+
+        await text({ message: 'Presione ENTER para continuar...' });
+    }
+
+// SUBMODULO: GESTION DE CONTRATOS
 
 async contractsSubMenu() {
     while (true) {
