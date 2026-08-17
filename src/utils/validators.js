@@ -1,4 +1,4 @@
-const validator = require('validator');
+import validator from 'validator';
 
 class AppValidator {
   // MÓDULO: CLIENTES (Autenticación, Registro y Perfil)
@@ -73,4 +73,4 @@ class AppValidator {
   }
 }
 
-module.exports = AppValidator;
+export default AppValidator;
