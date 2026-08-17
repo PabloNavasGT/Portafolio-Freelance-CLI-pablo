@@ -1,56 +1,64 @@
-// Busca un cliente para el inicio de sesión.
-class ClientRepository {
+import { ObjectId } from 'mongodb';
+import Database from '../config/db.js';
 
+export default class ClientRepository {
+    //Busca un cliente registrado mediante sus credenciales de acceso.
     async findByCredentials(email, password) {
         try {
-            const database = db.getDB();e
-            let cliente = await database.collection("clients").find({ email: email, password: password });
-            return cliente;
+            const db = Database.getDb();
+            return await db.collection("clients").findOne({ email, password });
         } catch (error) {
-            console.log("hubo un error", error);
+            console.log("Error al buscar cliente por credenciales:", error.message);
+            return null;
         }
     }
-//insertar nuevos clientes
+
+    //Registra un nuevo cliente en la base de datos.
     async create(clientData) {
         try {
-            const database = db.getDB();
-            let resultado = database.collection("clients").insertOne({
-                client: clientData.client,
-                client: clientData.email,
-                client: clientData.password,
-                client: clientData.name
-            });
-            return resultado;
+            const db = Database.getDb();
+            // Si recibe una instancia de modelo, utiliza toDocument() para limpiar el objeto BSON
+            const doc = clientData.toDocument ? clientData.toDocument() : clientData;
+            return await db.collection("clients").insertOne(doc);
         } catch (error) {
-            console.log("error al crear", error);
+            console.log("Error al crear cliente:", error.message);
+            throw error;
         }
     }
-// cambiar telfono, del cliente
-    async update(phone){
+
+    //Actualiza el número de contacto telefónico de un cliente existente.
+    async updatePhone(clientId, phone) {
         try {
-            const database = db.get();
-            let client = {_id: client_id},
-            let = {$set: {phone: phone}}  
-        }catch (error) {
-            console.log("error al renovar", error)
+            const db = Database.getDb();
+            return await db.collection("clients").updateOne(
+                { _id: new ObjectId(clientId) },
+                { $set: { phone } }
+            );
+        } catch (error) {
+            console.log("Error al actualizar teléfono:", error.message);
+            return null;
         }
     }
-//enlistar todo los clientes
-    async MediaRecorder(clientData){
-        try{
-             const database = db.getDB();
-            let resultado = database.collection("clients").find()
-        }catch (error) {
-            console.log("error al encontrar", error)
+
+    //Recupera el listado completo de clientes guardados.
+    async findAll() {
+        try {
+            const db = Database.getDb();
+            return await db.collection("clients").find().toArray();
+        } catch (error) {
+            console.log("Error al obtener lista de clientes:", error.message);
+            return [];
         }
-    };
-//eliminar cliente 
-    async delete(){
-        try{
-            const database = db.getDB();
-            let client = {_id: client_id}
-            let cliente = await database.collection("clients").remove({ _id: ""})
-        }catch (error) {
-            console.log("error al borrar", error)
+    }
+
+    //Elimina un registro de cliente según su ObjectId.
+    async deleteById(clientId) {
+        try {
+            const db = Database.getDb();
+            return await db.collection("clients").deleteOne({ _id: new ObjectId(clientId) });
+        } catch (error) {
+            console.log("Error al eliminar cliente:", error.message);
+            return null;
         }
-    }};
+    }
+}
