@@ -1,6 +1,5 @@
-
 // 1. COLECCIÓN: clients
-const clientsSchema = {
+export const clientsSchema = {
     $jsonSchema: {
         bsonType: "object",
         required: ["name", "email"],
@@ -16,7 +15,7 @@ const clientsSchema = {
 };
 
 // 2. COLECCIÓN: proposals
-const proposalsSchema = {
+export const proposalsSchema = {
     $jsonSchema: {
         bsonType: "object",
         required: ["title", "price", "status"],
@@ -32,7 +31,7 @@ const proposalsSchema = {
 };
 
 // 3. COLECCIÓN: contracts
-const contractsSchema = {
+export const contractsSchema = {
     $jsonSchema: {
         bsonType: "object",
         required: ["code", "title", "totalValue", "startDate", "endDate", "status", "createdAt"],
@@ -53,7 +52,7 @@ const contractsSchema = {
 };
 
 // 4. COLECCIÓN: projects
-const projectsSchema = {
+export const projectsSchema = {
     $jsonSchema: {
         bsonType: "object",
         required: ["name", "clientId", "status", "progress", "budget", "createdAt"],
@@ -73,7 +72,7 @@ const projectsSchema = {
 };
 
 // 5. COLECCIÓN: deliverables
-const deliverablesSchema = {
+export const deliverablesSchema = {
     $jsonSchema: {
         bsonType: "object",
         required: ["title", "projectId", "dueDate", "status", "createdAt"],
@@ -90,8 +89,7 @@ const deliverablesSchema = {
 };
 
 // 6. COLECCIÓN: finances
-
-const financesSchema = {
+export const financesSchema = {
     $jsonSchema: {
         bsonType: "object",
         required: ["projectId", "type", "amount", "referenceCode", "createdAt"],
@@ -108,11 +106,12 @@ const financesSchema = {
     }
 };
 
-module.exports = {
-    clientsSchema,
-    proposalsSchema,
-    contractsSchema,
-    projectsSchema,
-    deliverablesSchema,
-    financesSchema
+// Mapa que relaciona el nombre de cada colección con su esquema
+export const schemasMap = {
+    clients: clientsSchema,
+    proposals: proposalsSchema,
+    contracts: contractsSchema,
+    projects: projectsSchema,
+    deliverables: deliverablesSchema,
+    finances: financesSchema
 };
