@@ -1,17 +1,21 @@
 import { ObjectId } from 'mongodb';
 
 export default class Proposal {
+  //Instancia una nueva Propuesta.
+
   constructor({ clientId = null, title, description = '', price, deadline = null, status = 'pendiente', _id = null }) {
     this._id = _id ? new ObjectId(_id) : null;
     this.clientId = clientId ? new ObjectId(clientId) : null;
     this.title = title;
     this.description = description;
     this.price = Number(price) || 0;
+    // Conversión de fecha límite a objeto Date
     this.deadline = deadline ? new Date(deadline) : null;
     this.status = status;
     this.createdAt = new Date();
   }
 
+  //Valida el cumplimiento de reglas financieras y de estado base.
   validarReglasBase() {
     if (this.price < 0) {
       console.log("El precio no puede ser negativo");
@@ -27,7 +31,7 @@ export default class Proposal {
     return true;
   }
 
-  // Genera el objeto de proyecto alineado con la estructura BSON/JSON Schema de MongoDB
+  //Mapea y convierte una propuesta aceptada en un objeto base para un nuevo Proyecto.
   convertirAProyecto() {
     if (this.status === 'aceptada') {
       return {
@@ -45,11 +49,14 @@ export default class Proposal {
     return null;
   }
 
+  //Convierte la propuesta a documento BSON compatible con MongoDB.
   toDocument() {
     const doc = {
       title: this.title,
+      description: this.description,
       price: this.price,
       status: this.status,
+      deadline: this.deadline,
       clientId: this.clientId,
       createdAt: this.createdAt
     };
