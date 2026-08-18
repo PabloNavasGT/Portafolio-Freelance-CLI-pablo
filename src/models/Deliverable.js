@@ -1,22 +1,31 @@
 import { ObjectId } from 'mongodb';
 
 export default class Deliverable {
-
-    //Crea un hito de entrega.
-
+    // Crea un hito de entrega.
     constructor({ title, projectId, dueDate = null, deadline = null, status = 'pendiente', _id = null }) {
         this._id = _id ? new ObjectId(_id) : null;
-        this.title = title;
+        this.title = title ? String(title).trim() : '';
         this.projectId = new ObjectId(projectId);
-        // Sincronización entre nombres de propiedades según el menú utilizado
-        this.dueDate = dueDate ? new Date(dueDate) : (deadline ? new Date(deadline) : new Date());
-        this.deadline = deadline ? new Date(deadline) : this.dueDate;
+
+        // Lógica de fecha: Si viene en blanco o nulo, se le asigna la fecha actual (mismo día de creación)
+        const fechaActual = new Date();
+        
+        const parseFecha = (fechaInput) => {
+            if (!fechaInput || String(fechaInput).trim() === '') return null;
+            const d = new Date(fechaInput);
+            return isNaN(d.getTime()) ? null : d;
+        };
+
+        const fechaFinal = parseFecha(dueDate) || parseFecha(deadline) || fechaActual;
+
+        this.dueDate = fechaFinal;
+        this.deadline = fechaFinal;
         this.status = status;
         this.createdAt = new Date();
         this.updatedAt = new Date();
     }
 
-    //Mapea el objeto hacia el documento ejecutable por el driver de MongoDB.
+    // Mapea el objeto hacia el documento ejecutable por el driver de MongoDB.
     toDocument() {
         const doc = {
             title: this.title,
