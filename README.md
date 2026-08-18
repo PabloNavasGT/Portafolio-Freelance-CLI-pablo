@@ -8,13 +8,7 @@
 
 Una aplicacion de consola (CLI) interactiva desarrollada en Node.js y MongoDB para la gestion integral del ciclo de vida de proyectos freelance. Facilita la administracion de propuestas, contratos, entregables, aprobaciones del cliente y finanzas con transacciones atomicas ACID.
 
----
-
-# Estructura del proyecto
-
-
-
----
+--
 
 ## Tecnologias utilizadas
 

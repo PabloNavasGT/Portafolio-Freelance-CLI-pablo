@@ -979,8 +979,8 @@ export class ClientMenu {
     }
 
 async registrarPagoCliente() {
+    UI.displayHeader('REGISTRAR PAGO / ABONO DE PROYECTO');
     try {
-        UI.header('REGISTRAR PAGO / ABONO DE PROYECTO');
 
         // 1. Obtener proyectos disponibles
         const proyectos = await this.projectsCollection.find({}).toArray();
