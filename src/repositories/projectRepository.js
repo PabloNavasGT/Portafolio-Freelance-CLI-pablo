@@ -1,29 +1,31 @@
-import { ObjectId } from 'mongodb';
 import Database from '../config/db.js';
+import { generateNextId } from '../utils/idGenerator.js';
 
 export default class ProjectRepository {
-
-  //Guarda un nuevo proyecto en la base de datos.
   async create(projectData) {
     try {
       const db = Database.getDb();
-      const doc = projectData.toDocument ? projectData.toDocument() : projectData;
+      const col = db.collection('projects');
+      const doc = projectData.toDocument ? projectData.toDocument() : { ...projectData };
+
+      if (!doc._id) {
+        doc._id = await generateNextId(col, 'A');
+      }
+
       console.log("Guardando proyecto nuevo...");
-      return await db.collection('projects').insertOne(doc);
+      return await col.insertOne(doc);
     } catch (error) {
       console.log("Error al crear proyecto:", error.message);
       throw error;
     }
   }
 
-  //Actualiza el porcentaje de avance de un proyecto y registra la nota en el arreglo de bitácora/logs.
   async updateProgress(projectId, percentage, logNote) {
     try {
       const db = Database.getDb();
-      const id = new ObjectId(projectId);
 
       if (percentage < 0 || percentage > 100) {
-        console.log("El porcentaje no es válido");
+        console.log("El porcentaje no es valido");
         return false;
       }
 
@@ -34,7 +36,7 @@ export default class ProjectRepository {
       };
 
       return await db.collection('projects').updateOne(
-        { _id: id },
+        { _id: projectId },
         {
           $set: { progress: percentage, updatedAt: new Date() },
           $push: { logs: nuevoRegistro }
@@ -46,11 +48,9 @@ export default class ProjectRepository {
     }
   }
 
-  //Cambia el estado del proyecto verificando la lista de estados permitidos.
   async updateStatus(projectId, status) {
     try {
       const db = Database.getDb();
-      const id = new ObjectId(projectId);
       const estadosValidos = ['activo', 'pausado', 'finalizado', 'cancelado'];
 
       if (!estadosValidos.includes(status)) {
@@ -59,7 +59,7 @@ export default class ProjectRepository {
       }
 
       return await db.collection('projects').updateOne(
-        { _id: id },
+        { _id: projectId },
         { $set: { status: status, updatedAt: new Date() } }
       );
     } catch (error) {
@@ -68,24 +68,22 @@ export default class ProjectRepository {
     }
   }
 
-  //Obtiene la información de un proyecto mediante su ObjectId.
   async findById(projectId) {
     try {
       const db = Database.getDb();
-      return await db.collection('projects').findOne({ _id: new ObjectId(projectId) });
+      return await db.collection('projects').findOne({ _id: projectId });
     } catch (error) {
       console.log("Error al buscar proyecto:", error.message);
       return null;
     }
   }
 
-  //Consulta el listado completo de proyectos registrados.
   async findAll() {
     try {
       const db = Database.getDb();
       return await db.collection('projects').find().toArray();
     } catch (error) {
-      console.log("Error al obtener proyectos:", error.message);
+      console.log("Error al obtener lista de proyectos:", error.message);
       return [];
     }
   }

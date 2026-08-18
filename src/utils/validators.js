@@ -1,6 +1,6 @@
 import validator from 'validator';
 
-class AppValidator {
+export class AppValidator {
   // MÓDULO: CLIENTES (Autenticación, Registro y Perfil)
   //Valida el formato de correo electrónico antes de autenticar o crear un cliente.
   static isValidEmail(email) {
@@ -14,13 +14,21 @@ class AppValidator {
     return validator.isMobilePhone(String(phone), locale);
   }
 
-
   //Sanitiza el nombre del cliente para prevenir vulnerabilidades e inconsistencias.
   static sanitizeClientName(name) {
     if (!name) return '';
     const trimmedName = validator.trim(String(name));
     return validator.escape(trimmedName);
   }
+
+  // Valida que un campo obligatorio no este vacio ni contenga solo espacios
+  static validateRequired(value, nombreCampo = 'Este campo') {
+    if (!value || validator.trim(String(value)) === '') {
+      return `[ADVERTENCIA] ${nombreCampo} no se puede quedar en blanco.`;
+    }
+    return true;
+  }
+
   // MÓDULO: PROPUESTAS COMERCIALES (Proposals)
   
   //Confirma que el valor de un presupuesto o precio sea un número flotante positivo (>= 0).
@@ -37,12 +45,17 @@ class AppValidator {
     return !validator.isEmpty(cleanText);
   }
 
-
-  //Valida si un string entregado corresponde a una fecha real aceptada por la aplicación.
-  static isValidDeadline(deadline) {
-    if (!deadline) return false;
-    return validator.isDate(String(deadline));
+  //Valida la fecha limite (si allowEmpty es false, exige formato AAAA-MM-DD y fecha valida)
+  static isValidDeadline(deadline, allowEmpty = true) {
+    if (!deadline || validator.trim(String(deadline)) === '') {
+      return allowEmpty;
+    }
+    const dateStr = validator.trim(String(deadline));
+    const regexFormato = /^\d{4}-\d{2}-\d{2}$/;
+    if (!regexFormato.test(dateStr)) return false;
+    return validator.isDate(dateStr, { format: 'YYYY-MM-DD', strictMode: true });
   }
+
   // MÓDULO: PROYECTOS Y ENTREGABLES (Projects & Deliverables)
 
   //Valida que el porcentaje de avance de un proyecto esté restringido al rango numérico de 0 a 100.
@@ -59,8 +72,10 @@ class AppValidator {
       require_protocol: true 
     });
   }
+
   // MÓDULO: FINANZAS Y TRANSACCIONES (Finances & Balances)
-  //Garantiza que el monto asignado a una transacción financiera sea estrictamente numérico.
+
+  //Garantiza que el monto asignado a una transacción financiera sea strictly numérico.
   static isValidAmount(amount) {
     if (amount === undefined || amount === null) return false;
     return validator.isNumeric(String(amount));

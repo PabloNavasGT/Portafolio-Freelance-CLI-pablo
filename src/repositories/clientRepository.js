@@ -1,8 +1,7 @@
-import { ObjectId } from 'mongodb';
 import Database from '../config/db.js';
+import { generateNextId } from '../utils/idGenerator.js';
 
 export default class ClientRepository {
-    //Busca un cliente registrado mediante sus credenciales de acceso.
     async findByCredentials(email, password) {
         try {
             const db = Database.getDb();
@@ -13,34 +12,36 @@ export default class ClientRepository {
         }
     }
 
-    //Registra un nuevo cliente en la base de datos.
     async create(clientData) {
         try {
             const db = Database.getDb();
-            // Si recibe una instancia de modelo, utiliza toDocument() para limpiar el objeto BSON
-            const doc = clientData.toDocument ? clientData.toDocument() : clientData;
-            return await db.collection("clients").insertOne(doc);
+            const col = db.collection("clients");
+            const doc = clientData.toDocument ? clientData.toDocument() : { ...clientData };
+            
+            if (!doc._id) {
+                doc._id = await generateNextId(col, 'C');
+            }
+
+            return await col.insertOne(doc);
         } catch (error) {
             console.log("Error al crear cliente:", error.message);
             throw error;
         }
     }
 
-    //Actualiza el número de contacto telefónico de un cliente existente.
     async updatePhone(clientId, phone) {
         try {
             const db = Database.getDb();
             return await db.collection("clients").updateOne(
-                { _id: new ObjectId(clientId) },
+                { _id: clientId },
                 { $set: { phone } }
             );
         } catch (error) {
-            console.log("Error al actualizar teléfono:", error.message);
+            console.log("Error al actualizar telefono:", error.message);
             return null;
         }
     }
 
-    //Recupera el listado completo de clientes guardados.
     async findAll() {
         try {
             const db = Database.getDb();
@@ -51,11 +52,10 @@ export default class ClientRepository {
         }
     }
 
-    //Elimina un registro de cliente según su ObjectId.
     async deleteById(clientId) {
         try {
             const db = Database.getDb();
-            return await db.collection("clients").deleteOne({ _id: new ObjectId(clientId) });
+            return await db.collection("clients").deleteOne({ _id: clientId });
         } catch (error) {
             console.log("Error al eliminar cliente:", error.message);
             return null;

@@ -42,11 +42,12 @@ El sistema fue disenado aplicando principios de ingenieria de software para gara
 
 ### Patrones de diseno
 
-* **Singleton:** Aplicado en el modulo `Database` (`Database.getDb()`) para compartir una sola conexion activa en todo el sistema.
-* **Facade (Fachada):** `ClientMenu` y `FreelanceMenu` simplifican la complejidad interna de transacciones ACID y formateo de consola.
-* **Static Utility:** `AppValidator` como clase estatica sin estado para la sanitizacion centralizada.
-* **Adapter:** Metodos de renderizado visual (`renderBadge`, `renderProgressBar`) que transforman datos crudos a interfaces coloreadas con barras ASCII e iconos unicode.
-* **Factory Method:** Transformacion de propuestas aceptadas a nuevos proyectos (`Proposal.convertirAProyecto()`).
+* **Singleton:** Aplicado en el módulo `Database` (`Database.getDb()`) para compartir y reutilizar una sola conexión activa a la base de datos MongoDB en toda la aplicación.
+* **Repository Pattern (Repositorio):** Clases especializadas (`ClientRepository`, `ProjectRepository`, `ProposalRepository`, `FinanceRepository`) que encapsulan la lógica de acceso a datos, consultas y transacciones atómicas de MongoDB, aislando la base de datos de la interfaz de usuario.
+* **Facade (Fachada):** `ClientMenu` y `FreelanceMenu` actúan como fachadas interactivas que simplifican flujos complejos (múltiples preguntas de consola, formateo de tablas, spinners de carga y transacciones atómicas) para el usuario final.
+* **Static Utility:** `AppValidator` y utilidades de validación como clases/módulos estáticos sin estado para la sanitización centralizada de entradas de usuario.
+* **Adapter / Visual Helpers:** Métodos auxiliares de renderizado (`getBadge`, formateadores de tablas y tarjetas con `boxen`) que adaptan datos crudos de MongoDB a interfaces visuales estilizadas en consola.
+* **Factory Method / Generator:** Módulos de generación de identificadores personalizados (`generateNextId`) y conversión automática de propuestas aceptadas a nuevos proyectos dentro de transacciones ACID.
 
 ---
 
@@ -83,3 +84,6 @@ cp .env.example .env
 ```bash
 npm start
 ```
+
+
+* **Archivos descargables (SCRUM y Video):** https://drive.google.com/drive/folders/11XjrEtQX_7wC2tgMcbCyOIgbI2-e2TeO?usp=drive_link

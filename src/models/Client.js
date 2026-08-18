@@ -46,7 +46,7 @@ export default class Client {
 
     // Validación de estructura básica del correo
     if (!this.email || !this.email.includes("@")) {
-      console.log("El correo electrónico no es válido");
+      console.log("El correo electrónico no es válido, seleccione entre nuestros proveedores autorizados (ej. @gmail");
       esValido = false;
     }
 
