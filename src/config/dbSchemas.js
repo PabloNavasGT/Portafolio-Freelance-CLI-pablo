@@ -8,7 +8,9 @@ export const schemasMap = {
                 name: { bsonType: "string" },
                 email: { bsonType: "string" },
                 password: { bsonType: ["string", "null"] },
-                phone: { bsonType: ["string", "null"] }
+                phone: { bsonType: ["string", "null"] },
+                createdAt: { bsonType: ["date", "string", "null"] },
+                updatedAt: { bsonType: ["date", "string", "null"] }
             }
         }
     },
@@ -23,7 +25,9 @@ export const schemasMap = {
                 status: { bsonType: "string" },
                 description: { bsonType: ["string", "null"] },
                 deadline: { bsonType: ["date", "string", "null"] },
-                clientId: { bsonType: ["objectId", "null"] }
+                clientId: { bsonType: ["objectId", "string", "null"] }, // Permite String u ObjectId
+                createdAt: { bsonType: ["date", "string", "null"] },
+                updatedAt: { bsonType: ["date", "string", "null"] }
             }
         }
     },
@@ -37,10 +41,13 @@ export const schemasMap = {
                 budget: { bsonType: "number" },
                 status: { bsonType: "string" },
                 progress: { bsonType: "number" },
-                clientId: { bsonType: ["objectId", "null"] },
-                contractId: { bsonType: ["objectId", "null"] },
-                proposalId: { bsonType: ["objectId", "null"] },
-                description: { bsonType: ["string", "null"] }
+                clientId: { bsonType: ["objectId", "string", "null"] },
+                contractId: { bsonType: ["objectId", "string", "null"] },
+                proposalId: { bsonType: ["objectId", "string", "null"] },
+                description: { bsonType: ["string", "null"] },
+                logs: { bsonType: "array" },
+                createdAt: { bsonType: ["date", "string", "null"] },
+                updatedAt: { bsonType: ["date", "string", "null"] }
             }
         }
     },
@@ -54,7 +61,9 @@ export const schemasMap = {
                 title: { bsonType: "string" },
                 totalValue: { bsonType: "number" },
                 status: { bsonType: "string" },
-                projectId: { bsonType: ["objectId", "null"] }
+                projectId: { bsonType: ["objectId", "string", "null"] },
+                createdAt: { bsonType: ["date", "string", "null"] },
+                updatedAt: { bsonType: ["date", "string", "null"] }
             }
         }
     },
@@ -65,10 +74,12 @@ export const schemasMap = {
             required: ["title", "projectId"],
             properties: {
                 title: { bsonType: "string" },
-                projectId: { bsonType: "objectId" },
+                projectId: { bsonType: ["objectId", "string"] },
                 status: { bsonType: "string" },
                 deadline: { bsonType: ["date", "string", "null"] },
-                dueDate: { bsonType: ["date", "string", "null"] }
+                dueDate: { bsonType: ["date", "string", "null"] },
+                createdAt: { bsonType: ["date", "string", "null"] },
+                updatedAt: { bsonType: ["date", "string", "null"] }
             }
         }
     },
@@ -78,8 +89,8 @@ export const schemasMap = {
             bsonType: "object",
             required: ["projectId", "type", "amount"],
             properties: {
-                projectId: { bsonType: "objectId" },
-                clientId: { bsonType: ["objectId", "null"] },
+                projectId: { bsonType: ["objectId", "string"] },
+                clientId: { bsonType: ["objectId", "string", "null"] },
                 type: { bsonType: "string" },
                 amount: { bsonType: "number" },
                 reference: { bsonType: ["string", "null"] },
@@ -87,7 +98,8 @@ export const schemasMap = {
                 concept: { bsonType: ["string", "null"] },
                 description: { bsonType: ["string", "null"] },
                 date: { bsonType: ["date", "string", "null"] },
-                createdAt: { bsonType: ["date", "string", "null"] }
+                createdAt: { bsonType: ["date", "string", "null"] },
+                updatedAt: { bsonType: ["date", "string", "null"] }
             }
         }
     }
