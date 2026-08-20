@@ -1,33 +1,35 @@
 import { ObjectId } from 'mongodb';
-import { select, text, password, isCancel } from '@clack/prompts';
+import { select, text, confirm, isCancel, password } from '@clack/prompts';
 import chalk from 'chalk';
-import validator from 'validator';
 import boxen from 'boxen';
-import Table from 'cli-table3';
+import validator from 'validator';
+
 import dayjs from 'dayjs';
+import Table from 'cli-table3';
 import ora from 'ora';
 
 import Database from '../config/db.js';
 import { UI } from '../utils/ui.js';
-import Deliverable from '../models/Deliverable.js';
-import Contract from '../models/Contract.js';
-import Project from '../models/Project.js';
-import Transaction from '../models/Transaction.js';
-import Client from '../models/Client.js';
-import AppValidator from '../utils/validators.js';
-import { generateNextId } from '../utils/idGenerator.js';
 
-import ProposalRepository from '../repositories/proposalRepository.js';
+import Client from '../models/Client.js';
+import Contract from '../models/Contract.js';
+import Deliverable from '../models/Deliverable.js';
+import Project from '../models/Project.js';
+import Proposal from '../models/Proposal.js';
+import Transaction from '../models/Transaction.js';
+
 import ClientRepository from '../repositories/clientRepository.js';
 import ProjectRepository from '../repositories/projectRepository.js';
+import ProposalRepository from '../repositories/proposalRepository.js';
 import FinanceRepository from '../repositories/financeRepository.js';
+import { generateNextId } from '../utils/idGenerator.js';
+import AppValidator from '../utils/validators.js';
 
-export class ClientMenu {
+export class FreelanceMenu {
     constructor() {
-        this.currentClient = null;
-        this.proposalRepo = new ProposalRepository();
         this.clientRepo = new ClientRepository();
         this.projectRepo = new ProjectRepository();
+        this.proposalRepo = new ProposalRepository();
         this.financeRepo = new FinanceRepository();
     }
 
@@ -39,27 +41,37 @@ export class ClientMenu {
     get deliverablesCollection() { return this.db.collection('deliverables'); }
     get financesCollection() { return this.db.collection('finances'); }
 
-    renderBadge(status) {
-        if (!status) return chalk.bgGray.white(' N/A ');
-        const st = status.toLowerCase();
-
-        switch (st) {
-            case 'pendiente':
-            case 'en proceso':
-                return chalk.bgYellow.black(` [ ${st.toUpperCase()} ] `);
-            case 'aceptada':
-            case 'aprobado':
-            case 'completado':
-            case 'activo':
-            case 'ingreso':
-                return chalk.bgGreen.black(` [ ${st.toUpperCase()} ] `);
-            case 'rechazada':
-            case 'rechazado':
-            case 'cancelado':
-            case 'egreso':
-                return chalk.bgRed.white(` [ ${st.toUpperCase()} ] `);
+    getBadge(category, status) {
+        const st = status || '';
+        switch (category) {
+            case 'proposals':
+                if (st === 'pendiente') return chalk.yellow(`[ PENDIENTE ]`);
+                if (st === 'aceptada') return chalk.green(`[ ACEPTADA ]`);
+                if (st === 'rechazada') return chalk.red(`[ RECHAZADA ]`);
+                return chalk.gray(`[ ${st.toUpperCase()} ]`);
+            case 'contracts':
+                if (st === 'activo') return chalk.green(`[ ACTIVO ]`);
+                if (st === 'pendiente') return chalk.yellow(`[ PENDIENTE ]`);
+                if (st === 'finalizado') return chalk.blue(`[ FINALIZADO ]`);
+                if (st === 'cancelado') return chalk.red(`[ CANCELADO ]`);
+                return chalk.gray(`[ ${st.toUpperCase()} ]`);
+            case 'projects':
+                if (st === 'activo') return chalk.green(`[ ACTIVO ]`);
+                if (st === 'pausado') return chalk.yellow(`[ PAUSADO ]`);
+                if (st === 'completado') return chalk.blue(`[ COMPLETADO ]`);
+                if (st === 'cancelado') return chalk.red(`[ CANCELADO ]`);
+                return chalk.gray(`[ ${st.toUpperCase()} ]`);
+            case 'deliverables':
+                if (st === 'pendiente') return chalk.yellow(`[ PENDIENTE ]`);
+                if (st === 'en proceso') return chalk.blue(`[ EN PROCESO ]`);
+                if (st === 'completado' || st === 'aprobado') return chalk.green(`[ ${st.toUpperCase()} ]`);
+                return chalk.gray(`[ ${st.toUpperCase()} ]`);
+            case 'finances':
+                if (st === 'ingreso') return chalk.green(`[ INGRESO ]`);
+                if (st === 'egreso') return chalk.red(`[ EGRESO ]`);
+                return chalk.gray(`[ ${st.toUpperCase()} ]`);
             default:
-                return chalk.bgBlue.white(` [ ${st.toUpperCase()} ] `);
+                return chalk.gray(`[ ${st.toUpperCase()} ]`);
         }
     }
 
@@ -67,71 +79,154 @@ export class ClientMenu {
         const p = Math.min(100, Math.max(0, percentage));
         const filled = Math.round((p / 100) * 20);
         const empty = 20 - filled;
-        const bar = chalk.green('█'.repeat(filled)) + chalk.gray('░'.repeat(empty));
-        return `${bar} ${p}%`;
+        const bar = chalk.bold.green('█'.repeat(filled)) + chalk.gray('░'.repeat(empty));
+        return `[${bar}] ${p}%`;
     }
 
     async show() {
-        while (true) {
-            UI.displayHeader('> Modulo de Cliente > Autenticacion');
+        return await this.mainMenu();
+    }
 
+    async mainMenu() {
+        while (true) {
+            UI.displayHeader('> Modulo Freelancer > Menu Principal');
+            await this.renderFreelanceNotificationsBanner();
             const option = await select({
-                message: 'Seleccione una opcion para continuar:',
+                message: 'Seleccione una opcion:',
                 options: [
-                    { value: 'login', label: 'Iniciar Sesion' },
+                    { value: 'clients', label: 'Gestion de Clientes' },
+                    { value: 'proposals', label: 'Gestion de Propuestas' },
+                    { value: 'contracts', label: 'Gestion de Contratos' },
+                    { value: 'projects', label: 'Gestion de Proyectos' },
+                    { value: 'deliverables', label: 'Gestion de Entregables' },
+                    { value: 'finances', label: 'Gestion Financiera' },
                     { value: 'exit', label: 'Volver al Menu Principal' }
                 ]
             });
 
             if (isCancel(option) || option === 'exit') break;
 
-            if (option === 'login') {
-                const loggedIn = await this.login();
-                if (loggedIn) {
-                    await this.mainMenu();
-                }
-            } else if (option === 'register') {
-                await this.register();
+            switch (option) {
+                case 'clients':
+                    await this.clientsMenu();
+                    break;
+                case 'proposals':
+                    await this.proposalsMenu();
+                    break;
+                case 'contracts':
+                    await this.contractsMenu();
+                    break;
+                case 'projects':
+                    await this.projectsMenu();
+                    break;
+                case 'deliverables':
+                    await this.deliverablesMenu();
+                    break;
+                case 'finances':
+                    await this.financesMenu();
+                    break;
             }
         }
     }
 
-    async login() {
-        UI.displayHeader('> Modulo de Cliente > Iniciar Sesion');
+    async renderFreelanceNotificationsBanner() {
+        try {
+            const proposals = await this.proposalsCollection.find({ status: { $in: ['aceptada', 'rechazada'] } }).toArray();
+            const deliverables = await this.deliverablesCollection.find({ status: { $in: ['aprobado', 'rechazado'] } }).toArray();
+            const projects = await this.projectsCollection.find({ status: { $in: ['completado', 'rechazado'] } }).toArray();
+            const payments = await this.financesCollection.find({ type: { $in: ['ingreso', 'INGRESO', 'pago'] } }).limit(5).toArray();
 
-        const email = await text({
-            message: 'Correo Electronico:',
-            validate: val => (!val || !validator.isEmail(val)) ? 'Ingrese un email valido' : undefined
-        });
-        if (isCancel(email)) return false;
+            const notifications = [];
 
-        const pass = await password({
-            message: 'Contrasena:',
-            mask: '*'
-        });
-        if (isCancel(pass)) return false;
+            proposals.forEach(p => {
+                if (p.status === 'aceptada') {
+                    notifications.push(chalk.green(`[✔ ACEPTADA] Propuesta [${p._id}] "${p.title}" fue aceptada.`));
+                } else if (p.status === 'rechazada') {
+                    notifications.push(chalk.red(`[✖ RECHAZADA] Propuesta [${p._id}] "${p.title}". Motivo: "${p.rejectionReason || 'No especificado'}"`));
+                }
+            });
 
-        const spinner = ora('Verificando credenciales...').start();
-        const clientData = await this.clientRepo.findByCredentials(email.trim().toLowerCase(), pass);
+            deliverables.forEach(d => {
+                if (d.status === 'aprobado') {
+                    notifications.push(chalk.green(`[✔ APROBADO] Entregable [${d._id}] "${d.title}" fue aprobado por el cliente.`));
+                } else if (d.status === 'rechazado') {
+                    notifications.push(chalk.red(`[✖ RECHAZADO] Entregable [${d._id}] "${d.title}". Motivo: "${d.rejectionReason || 'Sin motivo registrado'}"`));
+                }
+            });
 
-        if (clientData) {
-            this.currentClient = new Client(clientData);
-            spinner.succeed(chalk.green(`Bienvenido de nuevo, ${this.currentClient.name}!`));
-            await text({ message: 'Presione ENTER para continuar al panel...' });
-            return true;
-        } else {
-            spinner.fail(chalk.red('Credenciales incorrectas. Intente nuevamente.'));
-            await text({ message: 'Presione ENTER para continuar...' });
-            return false;
+            projects.forEach(prj => {
+                if (prj.status === 'completado') {
+                    notifications.push(chalk.blue(`[✔ PROYECTO CERRADO] Proyecto [${prj._id}] "${prj.name}" fue aprobado final.`));
+                } else if (prj.status === 'rechazado') {
+                    notifications.push(chalk.red(`[✖ RECHAZADO] Proyecto [${prj._id}] "${prj.name}". Motivo: "${prj.rejectionReason || 'Sin motivo'}"`));
+                }
+            });
+
+            payments.forEach(pay => {
+                notifications.push(chalk.cyan(`[💰 PAGO RECIBIDO] $${parseFloat(pay.amount || 0).toFixed(2)} USD (Ref: ${pay.reference || pay.referenceCode || 'N/A'})`));
+            });
+
+            if (notifications.length > 0) {
+                const cardContent = [
+                    chalk.bold.cyan(' 🔔 CENTRO DE NOTIFICACIONES FREELANCER '),
+                    '------------------------------------------------------------',
+                    ...notifications.slice(-8)
+                ].join('\n');
+
+                console.log(
+                    boxen(cardContent, {
+                        padding: 1,
+                        margin: { top: 1, bottom: 1 },
+                        borderStyle: 'double',
+                        borderColor: 'cyan'
+                    })
+                );
+            }
+        } catch (e) {
+            // Manejo silencioso de errores de renderizado
         }
     }
 
-    async register() {
-        UI.displayHeader('> Modulo de Cliente > Registro de Nuevo Cliente');
+    async clientsMenu() {
+        while (true) {
+            UI.displayHeader('> Modo Freelancer > Gestion de Clientes');
+
+            const option = await select({
+                message: 'Seleccione una operacion:',
+                options: [
+                    { value: 'create', label: 'Registrar Nuevo Cliente' },
+                    { value: 'list', label: 'Listar Todos los Clientes' },
+                    { value: 'update', label: 'Actualizar Informacion del Cliente' },
+                    { value: 'delete', label: 'Eliminar Cliente' },
+                    { value: 'back', label: 'Volver al Menu Principal' }
+                ]
+            });
+
+            if (isCancel(option) || option === 'back') break;
+
+            switch (option) {
+                case 'create':
+                    await this.createClient();
+                    break;
+                case 'list':
+                    await this.listClients();
+                    break;
+                case 'update':
+                    await this.updateClient();
+                    break;
+                case 'delete':
+                    await this.deleteClient();
+                    break;
+            }
+        }
+    }
+
+    async createClient() {
+        UI.displayHeader('> Modo Freelancer > Clientes > Registrar Nuevo Cliente');
 
         const name = await text({
-            message: 'Nombre completo:',
-            validate: val => (!val || val.trim().length === 0) ? 'El nombre es requerido' : undefined
+            message: 'Nombre completo del cliente:',
+            validate: val => (!val || val.trim().length === 0) ? 'El nombre es obligatorio' : undefined
         });
         if (isCancel(name)) return;
 
@@ -151,149 +246,280 @@ export class ClientMenu {
         const phone = await text({ message: 'Telefono (Opcional):' });
         if (isCancel(phone)) return;
 
-        const spinner = ora('Registrando nuevo cliente...').start();
+        const spinner = ora('Registrando cliente...').start();
 
-        const existing = await this.clientsCollection.findOne({ email: email.trim().toLowerCase() });
-        if (existing) {
-            spinner.fail(chalk.red('El correo electronico ya esta registrado.'));
+        try {
+            const existing = await this.clientsCollection.findOne({ email: email.trim().toLowerCase() });
+            if (existing) {
+                spinner.fail(chalk.red('El correo electronico ya esta registrado.'));
+                await text({ message: 'Presione ENTER para continuar...' });
+                return;
+            }
+
+            const newClientId = await generateNextId(this.clientsCollection, 'C');
+
+            const newClient = new Client({
+                id: newClientId,
+                name: name.trim(),
+                email: email.trim().toLowerCase(),
+                password: pass,
+                phone: phone ? phone.trim() : null,
+                createdAt: new Date()
+            });
+
+            await this.clientsCollection.insertOne(newClient);
+            spinner.succeed(chalk.green(`Cliente registrado con exito con ID: ${newClientId}`));
+        } catch (e) {
+            spinner.fail(chalk.red(`Error al registrar cliente: ${e.message}`));
+        }
+
+        await text({ message: 'Presione ENTER para continuar...' });
+    }
+
+    async listClients() {
+        UI.displayHeader('> Modo Freelancer > Clientes > Listar Clientes');
+
+        try {
+            const clients = await this.clientsCollection.find().toArray();
+
+            if (!clients || clients.length === 0) {
+                console.log(boxen(chalk.yellow('[!] No hay clientes registrados.'), { padding: 1, margin: 1, borderStyle: 'round' }));
+            } else {
+                const table = new Table({
+                    head: [chalk.cyan('ID'), chalk.cyan('Nombre'), chalk.cyan('Email'), chalk.cyan('Telefono'), chalk.cyan('Fecha Registro')],
+                    colWidths: [10, 25, 30, 15, 15]
+                });
+
+                clients.forEach(c => {
+                    table.push([
+                        c._id || 'N/A',
+                        c.name || 'Sin nombre',
+                        c.email || 'N/A',
+                        c.phone || 'N/A',
+                        c.createdAt ? dayjs(c.createdAt).format('YYYY-MM-DD') : 'N/A'
+                    ]);
+                });
+
+                console.log(table.toString());
+            }
+        } catch (e) {
+            console.log(chalk.red(`Error al listar clientes: ${e.message}`));
+        }
+
+        await text({ message: 'Presione ENTER para continuar...' });
+    }
+
+    async updateClient() {
+        UI.displayHeader('> Modo Freelancer > Clientes > Actualizar Informacion');
+
+        const clientId = await this.selectClientInteractive();
+        if (!clientId) return;
+
+        const clienteExistente = await this.clientsCollection.findOne({ _id: clientId });
+        if (!clienteExistente) {
+            console.log(chalk.red('[!] Cliente no encontrado.'));
             await text({ message: 'Presione ENTER para continuar...' });
             return;
         }
 
-        const newClientId = await generateNextId(this.clientsCollection, 'C');
-
-        const newClient = new Client({
-            id: newClientId,
-            name: name.trim(),
-            email: email.trim().toLowerCase(),
-            password: pass,
-            phone: phone ? phone.trim() : null,
-            createdAt: new Date()
+        const nameInput = await text({
+            message: `Nombre completo [Actual: ${clienteExistente.name}]:`,
+            placeholder: 'Presione ENTER para mantener el actual'
         });
+        if (isCancel(nameInput)) return;
 
-        await this.clientsCollection.insertOne(newClient);
-        spinner.succeed(chalk.green(`Cliente registrado con exito con ID: ${newClientId}. Ahora puede iniciar sesion.`));
+        const emailInput = await text({
+            message: `Correo electrónico [Actual: ${clienteExistente.email}]:`,
+            placeholder: 'Presione ENTER para mantener el actual',
+            validate: (val) => {
+                if (!val || val.trim() === '') return undefined;
+                if (!validator.isEmail(val.trim())) return 'Ingrese un correo electrónico válido.';
+            }
+        });
+        if (isCancel(emailInput)) return;
+
+        const phoneInput = await text({
+            message: `Teléfono [Actual: ${clienteExistente.phone || 'N/A'}]:`,
+            placeholder: 'Presione ENTER para mantener el actual'
+        });
+        if (isCancel(phoneInput)) return;
+
+        const finalName = (nameInput && nameInput.trim() !== '') ? nameInput.trim() : clienteExistente.name;
+        const finalEmail = (emailInput && emailInput.trim() !== '') ? emailInput.trim().toLowerCase() : clienteExistente.email;
+        const finalPhone = (phoneInput && phoneInput.trim() !== '') ? phoneInput.trim() : clienteExistente.phone;
+
+        const spinner = ora('Actualizando información del cliente...').start();
+
+        try {
+            await this.clientsCollection.updateOne(
+                { _id: clientId },
+                {
+                    $set: {
+                        name: finalName,
+                        email: finalEmail,
+                        phone: finalPhone,
+                        updatedAt: new Date()
+                    }
+                }
+            );
+            spinner.succeed(chalk.green(`Cliente [${clientId}] actualizado exitosamente.`));
+        } catch (e) {
+            spinner.fail(chalk.red(`Error al actualizar cliente: ${e.message}`));
+        }
+
         await text({ message: 'Presione ENTER para continuar...' });
     }
 
-    async mainMenu() {
-        while (true) {
-            UI.displayHeader(`> Panel de Cliente > Sesion: ${this.currentClient.name}`);
-            await this.renderClientBanner();
-            const option = await select({
-                message: 'Seleccione una opcion:',
-                options: [
-                    { value: 'proposals', label: 'Mis Propuestas' },
-                    { value: 'projects', label: 'Mis Proyectos y Entregables' },
-                    { value: 'finances', label: 'Estado Financiero y Pagos' },
-                    { value: 'logout', label: 'Cerrar Sesion' }
-                ]
-            });
+    async deleteClient() {
+        UI.displayHeader('> Modo Freelancer > Clientes > Eliminar Cliente');
 
-            if (isCancel(option) || option === 'logout') {
-                this.currentClient = null;
-                break;
-            }
+        const clientId = await this.selectClientInteractive();
+        if (!clientId) return;
 
-            switch (option) {
-                case 'proposals':
-                    await this.gestionarPropuestas();
-                    break;
-                case 'projects':
-                    await this.gestionarProyectos();
-                    break;
-                case 'finances':
-                    await this.gestionarFinanzas();
-                    break;
-            }
-        }
-    }
+        const confirmDelete = await confirm({
+            message: `¿Esta seguro de que desea eliminar al cliente [${clientId}]?`
+        });
+        if (isCancel(confirmDelete) || !confirmDelete) return;
 
-    async renderClientBanner() {
+        const spinner = ora('Eliminando cliente...').start();
+
         try {
-            if (!this.currentClient) return;
-
-            const pendingProposals = await this.proposalsCollection.countDocuments({
-                clientId: this.currentClient._id,
-                status: { $in: ['pendiente', 'PENDIENTE'] }
-            });
-
-            const pendingDeliverables = await this.deliverablesCollection.countDocuments({
-                clientId: this.currentClient._id,
-                status: { $in: ['pendiente_aprobacion', 'en_revision', 'por_aprobar'] }
-            });
-
-            const pendingProjects = await this.projectsCollection.countDocuments({
-                clientId: this.currentClient._id,
-                status: { $in: ['pendiente_aprobacion', 'por_aprobar'] }
-            });
-
-            if (pendingProposals > 0 || pendingDeliverables > 0 || pendingProjects > 0) {
-                const bannerLines = [
-                    chalk.bold.black.bgYellow(' ⚠️  ACCIONES PENDIENTES DE REVISIÓN '),
-                    '---------------------------------------------------'
-                ];
-
-                if (pendingProposals > 0) bannerLines.push(chalk.yellow(`• Tienes ${pendingProposals} propuesta(s) nueva(s) pendiente(s) de revisión.`));
-                if (pendingDeliverables > 0) bannerLines.push(chalk.yellow(`• Tienes ${pendingDeliverables} entregable(s) pendiente(s) de aprobación.`));
-                if (pendingProjects > 0) bannerLines.push(chalk.yellow(`• Tienes ${pendingProjects} proyecto(s) finalizado(s) pendiente(s) de aprobación.`));
-
-                console.log(
-                    boxen(bannerLines.join('\n'), {
-                        padding: 1,
-                        margin: { top: 1, bottom: 1 },
-                        borderStyle: 'double',
-                        borderColor: 'yellow'
-                    })
-                );
-            }
+            await this.clientsCollection.deleteOne({ _id: clientId });
+            spinner.succeed(chalk.green('Cliente eliminado correctamente.'));
         } catch (e) {
-            // Manejo silencioso de errores de UI
+            spinner.fail(chalk.red(`Error al eliminar cliente: ${e.message}`));
+        }
+
+        await text({ message: 'Presione ENTER para continuar...' });
+    }
+
+    async selectClientInteractive() {
+        try {
+            const clients = await this.clientsCollection.find().toArray();
+            if (!clients || clients.length === 0) {
+                console.log(chalk.yellow('[!] No hay clientes registrados en la base de datos.'));
+                await text({ message: 'Presione ENTER para continuar...' });
+                return null;
+            }
+
+            const choices = clients.map(c => ({
+                value: c._id,
+                label: `[${c._id}] ${c.name} (${c.email})`
+            }));
+
+            const selected = await select({
+                message: 'Seleccione un cliente:',
+                options: choices
+            });
+
+            if (isCancel(selected)) return null;
+            return selected;
+        } catch (e) {
+            console.log(chalk.red(`Error al seleccionar cliente: ${e.message}`));
+            return null;
         }
     }
 
-    async gestionarPropuestas() {
+    async proposalsMenu() {
         while (true) {
-            UI.displayHeader('> Panel de Cliente > Gestion de Propuestas');
+            UI.displayHeader('> Modo Freelancer > Gestion de Propuestas');
 
             const option = await select({
                 message: 'Seleccione una operacion:',
                 options: [
-                    { value: 'list', label: 'Ver Propuestas Recibidas' },
-                    { value: 'respond', label: 'Aceptar o Rechazar Propuesta' },
-                    { value: 'avances', label: 'Ver Avances y Tareas de Propuestas / Proyectos' },
-                    { value: 'back', label: 'Volver al Menu' }
+                    { value: 'create', label: 'Crear Nueva Propuesta' },
+                    { value: 'list', label: 'Listar Propuestas por Cliente' },
+                    { value: 'back', label: 'Volver al Menu Principal' }
                 ]
             });
 
             if (isCancel(option) || option === 'back') break;
 
-            if (option === 'list') await this.verPropuestas();
-            if (option === 'respond') await this.responderPropuesta();
-            if (option === 'avances') await this.verAvancesYBitacoraProyectos();
+            switch (option) {
+                case 'create':
+                    await this.createProposalInteractive();
+                    break;
+                case 'list':
+                    await this.listProposalsByClient();
+                    break;
+            }
         }
     }
 
-    async verPropuestas() {
-        UI.displayHeader('> Panel de Cliente > Propuestas Recibidas');
+    async createProposalInteractive() {
+        UI.displayHeader('> Modo Freelancer > Propuestas > Crear Propuesta');
+
+        const clientId = await this.selectClientInteractive();
+        if (!clientId) return;
+
+        const title = await text({
+            message: 'Ingrese el título de la propuesta:',
+            validate: val => (!val || val.trim().length === 0) ? '[!] El título no puede quedar en blanco' : undefined
+        });
+        if (isCancel(title)) return;
+
+        const description = await text({
+            message: 'Ingrese la descripción del servicio:',
+            validate: val => (!val || val.trim().length === 0) ? '[!] La descripción no puede quedar en blanco' : undefined
+        });
+        if (isCancel(description)) return;
+
+        const priceStr = await text({
+            message: 'Ingrese el presupuesto estimado (USD):',
+            validate: val => {
+                if (!val || val.trim().length === 0) return '[!] El presupuesto no puede quedar en blanco';
+                if (isNaN(val) || parseFloat(val) < 0) return '[!] Ingrese un monto numérico válido';
+                return undefined;
+            }
+        });
+        if (isCancel(priceStr)) return;
+
+        const spinner = ora('Generando ID e insertando propuesta...').start();
 
         try {
-            const propuestas = await this.proposalsCollection.find({ clientId: this.currentClient._id }).toArray();
+            const newPropId = await generateNextId(this.proposalsCollection, 'P');
 
-            if (!propuestas || propuestas.length === 0) {
-                console.log(boxen(chalk.yellow('[!] No tiene propuestas registradas por el momento.'), { padding: 1, margin: 1, borderStyle: 'round' }));
+            const newProposal = new Proposal({
+                id: newPropId,
+                clientId: clientId,
+                title: title.trim(),
+                description: description.trim(),
+                price: parseFloat(priceStr),
+                status: 'pendiente'
+            });
+
+            await this.proposalsCollection.insertOne(newProposal);
+            spinner.succeed(chalk.green(`Propuesta creada exitosamente con ID: ${newPropId}`));
+        } catch (error) {
+            spinner.fail(chalk.red(`[!] Error al crear propuesta: ${error.message}`));
+        }
+
+        await text({ message: 'Presione ENTER para continuar...' });
+    }
+
+    async listProposalsByClient() {
+        UI.displayHeader('> Modo Freelancer > Propuestas > Listar por Cliente');
+
+        const clientId = await this.selectClientInteractive();
+        if (!clientId) return;
+
+        try {
+            const proposals = await this.proposalsCollection.find({ clientId: clientId }).toArray();
+
+            if (!proposals || proposals.length === 0) {
+                console.log(boxen(chalk.yellow('[!] El cliente no tiene propuestas asociadas.'), { padding: 1, margin: 1, borderStyle: 'round' }));
             } else {
                 const table = new Table({
-                    head: [chalk.cyan('ID'), chalk.cyan('Titulo'), chalk.cyan('Precio (USD)'), chalk.cyan('Estado'), chalk.cyan('Fecha')],
+                    head: [chalk.cyan('ID'), chalk.cyan('Titulo'), chalk.cyan('Precio (USD)'), chalk.cyan('Estado'), chalk.cyan('Fecha Creacion')],
                     colWidths: [10, 30, 15, 18, 15]
                 });
 
-                propuestas.forEach(p => {
+                proposals.forEach(p => {
                     table.push([
                         p._id || 'N/A',
                         p.title || 'Sin titulo',
                         `$${p.price || 0}`,
-                        this.renderBadge(p.status),
+                        this.getBadge('proposals', p.status),
                         p.createdAt ? dayjs(p.createdAt).format('YYYY-MM-DD') : 'N/A'
                     ]);
                 });
@@ -307,386 +533,321 @@ export class ClientMenu {
         await text({ message: 'Presione ENTER para continuar...' });
     }
 
-    async responderPropuesta() {
-        UI.displayHeader('> Panel de Cliente > Aceptar o Rechazar Propuesta');
-
-        try {
-            const pendientes = await this.proposalsCollection.find({
-                clientId: this.currentClient._id,
-                status: { $in: ['pendiente', 'PENDIENTE'] }
-            }).toArray();
-
-            if (!pendientes || pendientes.length === 0) {
-                console.log(boxen(chalk.yellow('[ℹ] No tiene propuestas pendientes por responder.'), { padding: 1, margin: 1, borderStyle: 'round' }));
-                await text({ message: 'Presione ENTER para continuar...' });
-                return;
-            }
-
-            const choices = pendientes.map(p => ({
-                value: p._id.toString(),
-                label: `[${p._id}] ${p.title || 'Sin titulo'} - $${p.price || 0}`
-            }));
-
-            const selection = await select({
-                message: 'Seleccione la propuesta a responder:',
-                options: choices
-            });
-
-            if (isCancel(selection)) return;
-
-            const action = await select({
-                message: '¿Qué respuesta desea dar a esta propuesta?',
-                options: [
-                    { value: 'aceptar', label: 'Aceptar Propuesta' },
-                    { value: 'rechazar', label: 'Rechazar Propuesta' }
-                ]
-            });
-
-            if (isCancel(action)) return;
-
-            let rejectionReason = null;
-            if (action === 'rechazar') {
-                rejectionReason = await text({
-                    message: 'Ingrese el motivo por el cual rechaza la propuesta (Obligatorio):',
-                    validate: (val) => (!val || val.trim().length === 0) ? 'Debe especificar la razón del rechazo.' : undefined
-                });
-                if (isCancel(rejectionReason)) return;
-            }
-
-            const spinner = ora('Procesando respuesta...').start();
-            const targetId = ObjectId.isValid(selection) ? new ObjectId(selection) : selection;
-            const propuestaExistente = await this.proposalsCollection.findOne({
-                $or: [{ _id: targetId }, { _id: selection }]
-            });
-
-            if (!propuestaExistente) {
-                spinner.fail(chalk.red('[✖] No se encontró la propuesta seleccionada.'));
-                await text({ message: 'Presione ENTER para continuar...' });
-                return;
-            }
-
-            const actualId = propuestaExistente._id;
-
-            if (action === 'aceptar') {
-                const session = Database.startSession();
-                try {
-                    let newContractId = '';
-                    let newProjectId = '';
-
-                    await session.withTransaction(async () => {
-                        const numericPrice = Number(parseFloat(propuestaExistente.price || 0));
-                        const formattedClientId = (typeof propuestaExistente.clientId === 'string' && ObjectId.isValid(propuestaExistente.clientId))
-                            ? new ObjectId(propuestaExistente.clientId)
-                            : propuestaExistente.clientId;
-
-                        await this.proposalsCollection.updateOne(
-                            { _id: actualId },
-                            { 
-                                $set: { 
-                                    status: 'aceptada',
-                                    price: numericPrice,
-                                    clientId: formattedClientId,
-                                    updatedAt: new Date()
-                                } 
-                            },
-                            { session }
-                        );
-
-                        newContractId = await generateNextId(this.contractsCollection, 'CT');
-                        const nuevoContrato = new Contract({
-                            id: newContractId,
-                            code: newContractId,
-                            title: String(`Contrato: ${propuestaExistente.title || 'Sin titulo'}`).trim(),
-                            terms: `Aprobacion de propuesta ${propuestaExistente._id}`,
-                            totalValue: numericPrice,
-                            amount: numericPrice,
-                            clientId: formattedClientId,
-                            proposalId: actualId,
-                            status: 'activo',
-                            startDate: new Date(),
-                            endDate: dayjs().add(1, 'month').toDate()
-                        });
-                        await this.contractsCollection.insertOne(nuevoContrato, { session });
-
-                        newProjectId = await generateNextId(this.projectsCollection, 'A');
-                        const nuevoProyecto = new Project({
-                            id: newProjectId,
-                            name: String(propuestaExistente.title || 'Sin titulo').trim(),
-                            description: String(propuestaExistente.description || '').trim(),
-                            clientId: formattedClientId,
-                            contractId: newContractId,
-                            proposalId: actualId,
-                            status: 'activo',
-                            progress: 0,
-                            budget: numericPrice,
-                            logs: [{
-                                note: `Proyecto iniciado automaticamente tras aprobacion de propuesta ${propuestaExistente._id}`,
-                                state: 'en proceso',
-                                percentage: 0,
-                                date: new Date()
-                            }]
-                        });
-                        await this.projectsCollection.insertOne(nuevoProyecto, { session });
-
-                        await this.db.collection('notifications').insertOne({
-                            freelancerId: propuestaExistente.freelancerId || propuestaExistente.userId,
-                            proposalId: actualId,
-                            title: 'Propuesta Aceptada',
-                            message: `El cliente ha aceptado tu propuesta: "${propuestaExistente.title}". Se ha creado el proyecto ${newProjectId}.`,
-                            type: 'proposal_accepted',
-                            read: false,
-                            createdAt: new Date()
-                        }, { session });
-                    });
-
-                    spinner.succeed(chalk.green('[✔] Propuesta aprobada exitosamente.'));
-                    const cardInfo = [
-                        chalk.bold.green('[✔] SE HAN CREADO PROYECTO Y CONTRATO AUTOMATICO'),
-                        '--------------------------------------------------',
-                        `Propuesta ID: ${actualId}`,
-                        `Contrato ID:  ${newContractId}`,
-                        `Proyecto ID:  ${newProjectId}`,
-                        `Cliente ID:   ${this.currentClient._id}`
-                    ].join('\n');
-
-                    console.log(boxen(cardInfo, { padding: 1, margin: 1, borderStyle: 'round', borderColor: 'green' }));
-
-                } catch (err) {
-                    spinner.fail(chalk.red(`[✖] Error en la transacción: ${err.message}`));
-                } finally {
-                    await session.endSession();
-                }
-            } else {
-                await this.proposalsCollection.updateOne(
-                    { _id: actualId },
-                    { 
-                        $set: { 
-                            status: 'rechazada', 
-                            rejectionReason: rejectionReason.trim(),
-                            updatedAt: new Date() 
-                        } 
-                    }
-                );
-
-                await this.db.collection('notifications').insertOne({
-                    freelancerId: propuestaExistente.freelancerId || propuestaExistente.userId,
-                    proposalId: actualId,
-                    title: 'Propuesta Rechazada',
-                    message: `El cliente ${this.currentClient.name || ''} ha rechazado tu propuesta: "${propuestaExistente.title || 'Sin título'}". Motivo: ${rejectionReason.trim()}`,
-                    type: 'proposal_rejected',
-                    rejectionReason: rejectionReason.trim(),
-                    read: false,
-                    createdAt: new Date()
-                });
-
-                spinner.succeed(chalk.green('[✔] Propuesta rechazada y motivo registrado correctamente.'));
-            }
-        } catch (e) {
-            console.log(chalk.red(`[✖] Error al procesar la operacion: ${e.message}`));
-        }
-
-        await text({ message: 'Presione ENTER para continuar...' });
-    }
-
-    async aprobarORechazarEntregable() {
-        UI.displayHeader('> Panel de Cliente > Evaluación de Entregables');
-        try {
-            const entregables = await this.deliverablesCollection.find({
-                clientId: this.currentClient._id,
-                status: { $in: ['pendiente_aprobacion', 'en_revision', 'pendiente', 'completado'] }
-            }).toArray();
-
-            if (!entregables || entregables.length === 0) {
-                console.log(boxen(chalk.yellow('[ℹ] No hay entregables pendientes de aprobación.'), { padding: 1, margin: 1, borderStyle: 'round' }));
-                await text({ message: 'Presione ENTER para continuar...' });
-                return;
-            }
-
-            const choices = entregables.map(d => ({
-                value: d._id.toString(),
-                label: `[${d._id}] ${d.title} (Estado actual: ${d.status})`
-            }));
-
-            const selectedId = await select({ message: 'Seleccione el entregable a evaluar:', options: choices });
-            if (isCancel(selectedId)) return;
-
-            const decision = await select({
-                message: '¿Qué acción desea tomar sobre este entregable?',
-                options: [
-                    { value: 'aprobar', label: 'Aprobar Entregable' },
-                    { value: 'rechazar', label: 'Rechazar Entregable (Solicitar Ajustes)' }
-                ]
-            });
-            if (isCancel(decision)) return;
-
-            let razonRechazo = null;
-            if (decision === 'rechazar') {
-                razonRechazo = await text({
-                    message: 'Ingrese la razón/motivo por la cual se rechaza el entregable:',
-                    validate: val => (!val || val.trim().length === 0) ? 'Debe especificar la razón del rechazo' : undefined
-                });
-                if (isCancel(razonRechazo)) return;
-            }
-
-            const spinner = ora('Actualizando estado del entregable...').start();
-            const entregableSel = entregables.find(d => d._id.toString() === selectedId);
-
-            if (decision === 'aprobar') {
-                await this.deliverablesCollection.updateOne(
-                    { _id: selectedId },
-                    { $set: { status: 'aprobado', approvedAt: new Date(), updatedAt: new Date() } }
-                );
-
-                if (entregableSel && entregableSel.projectId) {
-                    await this.syncProjectProgress(entregableSel.projectId);
-                }
-
-                spinner.succeed(chalk.green(`Entregable [${selectedId}] aprobado con éxito.`));
-            } else {
-                await this.deliverablesCollection.updateOne(
-                    { _id: selectedId },
-                    { 
-                        $set: { 
-                            status: 'rechazado', 
-                            rejectionReason: razonRechazo.trim(),
-                            updatedAt: new Date() 
-                        } 
-                    }
-                );
-                spinner.succeed(chalk.red(`Entregable [${selectedId}] rechazado. Motivo registrado.`));
-            }
-        } catch (e) {
-            console.log(chalk.red(`Error al procesar entregable: ${e.message}`));
-        }
-        await text({ message: 'Presione ENTER para continuar...' });
-    }
-
-    async syncProjectProgress(projectId) {
-        if (!projectId) return;
-        const deliverables = await this.deliverablesCollection.find({ projectId }).toArray();
-        if (!deliverables || deliverables.length === 0) return;
-
-        const completed = deliverables.filter(d => ['completado', 'aprobado'].includes(d.status)).length;
-        const progressNum = Math.round((completed / deliverables.length) * 100);
-
-        await this.projectsCollection.updateOne(
-            { _id: projectId },
-            { $set: { progress: progressNum, updatedAt: new Date() } }
-        );
-    }
-
-    async aprobarORechazarProyecto() {
-        UI.displayHeader('> Panel de Cliente > Evaluación de Proyecto Finalizado');
-        try {
-            const proyectos = await this.projectsCollection.find({
-                clientId: this.currentClient._id,
-                status: { $in: ['pendiente_aprobacion', 'por_aprobar', 'completado', 'activo'] }
-            }).toArray();
-
-            if (!proyectos || proyectos.length === 0) {
-                console.log(boxen(chalk.yellow('[ℹ] No hay proyectos pendientes de cierre/aprobación.'), { padding: 1, margin: 1, borderStyle: 'round' }));
-                await text({ message: 'Presione ENTER para continuar...' });
-                return;
-            }
-
-            const choices = proyectos.map(p => ({
-                value: p._id.toString(),
-                label: `[${p._id}] ${p.name} (Progreso: ${p.progress || 0}%)`
-            }));
-
-            const selectedId = await select({ message: 'Seleccione el proyecto a evaluar:', options: choices });
-            if (isCancel(selectedId)) return;
-
-            const decision = await select({
-                message: '¿Acepta y aprueba la finalización de este proyecto?',
-                options: [
-                    { value: 'aprobar', label: ' Aprobar y Cerrar Proyecto' },
-                    { value: 'rechazar', label: 'Rechazar Finalización (Solicitar Revisiones)' }
-                ]
-            });
-            if (isCancel(decision)) return;
-
-            let razonRechazo = null;
-            if (decision === 'rechazar') {
-                razonRechazo = await text({
-                    message: 'Ingrese la razón/motivo de rechazo del proyecto:',
-                    validate: val => (!val || val.trim().length === 0) ? 'Debe especificar el motivo de rechazo' : undefined
-                });
-                if (isCancel(razonRechazo)) return;
-            }
-
-            const spinner = ora('Actualizando estado del proyecto...').start();
-
-            if (decision === 'aprobar') {
-                await this.projectsCollection.updateOne(
-                    { _id: selectedId },
-                    { $set: { status: 'completado', approvedAt: new Date(), updatedAt: new Date() } }
-                );
-                spinner.succeed(chalk.green(`Proyecto [${selectedId}] aprobado y marcado como COMPLETADO.`));
-            } else {
-                await this.projectsCollection.updateOne(
-                    { _id: selectedId },
-                    { 
-                        $set: { 
-                            status: 'rechazado', 
-                            rejectionReason: razonRechazo.trim(),
-                            updatedAt: new Date() 
-                        } 
-                    }
-                );
-                spinner.succeed(chalk.red(`Proyecto [${selectedId}] rechazado. Motivo guardado.`));
-            }
-        } catch (e) {
-            console.log(chalk.red(`Error al evaluar proyecto: ${e.message}`));
-        }
-        await text({ message: 'Presione ENTER para continuar...' });
-    }
-
-    async gestionarProyectos() {
+    async contractsMenu() {
         while (true) {
-            UI.displayHeader('> Panel de Cliente > Gestion de Proyectos y Entregables');
+            UI.displayHeader('> Modo Freelancer > Gestion de Contratos');
 
             const option = await select({
                 message: 'Seleccione una operacion:',
                 options: [
-                    { value: 'list', label: 'Ver Mis Proyectos' },
-                    { value: 'deliverable', label: 'Solicitar / Asignar Entregable a Proyecto' },
-                    { value: 'evaluarEntregable', label: 'Evaluar / Aprobar Entregables' },
-                    { value: 'evaluarProyecto', label: 'Evaluar / Aprobar Cierre de Proyecto' },
-                    { value: 'avances', label: 'Ver Bitacora de Avances y Entregables' },
-                    { value: 'back', label: 'Volver al Menu' }
+                    { value: 'create', label: 'Crear Nuevo Contrato' },
+                    { value: 'list', label: 'Listar Todos los Contratos' },
+                    { value: 'updateStatus', label: 'Cambiar Estado de Contrato' },
+                    { value: 'delete', label: 'Eliminar Contrato' },
+                    { value: 'back', label: 'Volver al Menu Principal' }
                 ]
             });
 
             if (isCancel(option) || option === 'back') break;
 
-            if (option === 'list') await this.verProyectos();
-            if (option === 'deliverable') await this.crearEntregableCliente();
-            if (option === 'evaluarEntregable') await this.aprobarORechazarEntregable();
-            if (option === 'evaluarProyecto') await this.aprobarORechazarProyecto();
-            if (option === 'avances') await this.verAvancesYBitacoraProyectos();
+            switch (option) {
+                case 'create':
+                    await this.createContract();
+                    break;
+                case 'list':
+                    await this.listContracts();
+                    break;
+                case 'updateStatus':
+                    await this.updateContractStatus();
+                    break;
+                case 'delete':
+                    await this.deleteContract();
+                    break;
+            }
         }
     }
 
-    async verProyectos() {
-        UI.displayHeader('> Panel de Cliente > Mis Proyectos');
+    async createContract() {
+        UI.displayHeader('> Modo Freelancer > Contratos > Crear Nuevo Contrato');
+
+        const clientId = await this.selectClientInteractive();
+        if (!clientId) return;
+
+        const title = await text({
+            message: 'Titulo del contrato:',
+            validate: val => (!val || val.trim().length === 0) ? 'El titulo es obligatorio' : undefined
+        });
+        if (isCancel(title)) return;
+
+        const terms = await text({
+            message: 'Terminos y condiciones del contrato:',
+            validate: val => (!val || val.trim().length === 0) ? 'Los terminos son requeridos' : undefined
+        });
+        if (isCancel(terms)) return;
+
+        const amountStr = await text({
+            message: 'Monto acordado (USD):',
+            validate: val => (!val || isNaN(val) || Number(val) <= 0) ? 'Ingrese un monto valido mayor a 0' : undefined
+        });
+        if (isCancel(amountStr)) return;
+
+        const startDateInput = await text({
+            message: 'Fecha de inicio (YYYY-MM-DD):',
+            placeholder: dayjs().format('YYYY-MM-DD'),
+            validate: val => (!val || val.trim().length === 0) ? 'La fecha de inicio es requerida' : undefined
+        });
+        if (isCancel(startDateInput)) return;
+
+        const endDateInput = await text({
+            message: 'Fecha de finalización (YYYY-MM-DD):',
+            placeholder: dayjs().add(30, 'day').format('YYYY-MM-DD'),
+            validate: val => (!val || val.trim().length === 0) ? 'La fecha de finalizacion es requerida' : undefined
+        });
+        if (isCancel(endDateInput)) return;
+
+        const spinner = ora('Registrando contrato...').start();
 
         try {
-            const proyectos = await this.projectsCollection.find({ clientId: this.currentClient._id }).toArray();
+            const newContractId = await generateNextId(this.contractsCollection, 'CT');
 
-            if (!proyectos || proyectos.length === 0) {
-                console.log(boxen(chalk.yellow('[!] No tiene proyectos activos registrados.'), { padding: 1, margin: 1, borderStyle: 'round' }));
+            const newContract = new Contract({
+                id: newContractId,
+                title: title.trim(),
+                terms: terms.trim(),
+                clientId: clientId,
+                amount: parseFloat(amountStr),
+                status: 'activo',
+                startDate: dayjs(startDateInput.trim()).toDate(),
+                endDate: dayjs(endDateInput.trim()).toDate()
+            });
+
+            await this.contractsCollection.insertOne(newContract);
+            spinner.succeed(chalk.green(`Contrato registrado con exito con ID: ${newContractId}`));
+        } catch (e) {
+            spinner.fail(chalk.red(`Error al registrar contrato: ${e.message}`));
+        }
+
+        await text({ message: 'Presione ENTER para continuar...' });
+    }
+
+    async listContracts() {
+        UI.displayHeader('> Modo Freelancer > Contratos > Listado General');
+
+        try {
+            const contracts = await this.contractsCollection.find().toArray();
+
+            if (!contracts || contracts.length === 0) {
+                console.log(boxen(chalk.yellow('[!] No hay contratos registrados.'), { padding: 1, margin: 1, borderStyle: 'round' }));
             } else {
                 const table = new Table({
-                    head: [chalk.cyan('ID'), chalk.cyan('Nombre del Proyecto'), chalk.cyan('Estado'), chalk.cyan('Progreso'), chalk.cyan('Presupuesto')],
-                    colWidths: [10, 30, 15, 25, 15]
+                    head: [chalk.cyan('ID'), chalk.cyan('Titulo'), chalk.cyan('Cliente ID'), chalk.cyan('Monto (USD)'), chalk.cyan('Estado'), chalk.cyan('Inicio'), chalk.cyan('Fin')],
+                    colWidths: [10, 25, 12, 15, 15, 15, 15]
                 });
 
-                proyectos.forEach(p => {
+                contracts.forEach(c => {
+                    table.push([
+                        c._id || 'N/A',
+                        c.title || 'Sin titulo',
+                        c.clientId || 'N/A',
+                        `$${Number(c.amount || 0).toFixed(2)}`,
+                        this.getBadge('contracts', c.status),
+                        c.startDate ? dayjs(c.startDate).format('YYYY-MM-DD') : 'N/A',
+                        c.endDate ? dayjs(c.endDate).format('YYYY-MM-DD') : 'N/A'
+                    ]);
+                });
+
+                console.log(table.toString());
+            }
+        } catch (e) {
+            console.log(chalk.red(`Error al listar contratos: ${e.message}`));
+        }
+
+        await text({ message: 'Presione ENTER para continuar...' });
+    }
+
+    async updateContractStatus() {
+        UI.displayHeader('> Modo Freelancer > Contratos > Cambiar Estado');
+
+        const contractId = await this.selectContractInteractive();
+        if (!contractId) return;
+
+        const newStatus = await select({
+            message: 'Seleccione el nuevo estado del contrato:',
+            options: [
+                { value: 'activo', label: 'Activo' },
+                { value: 'pendiente', label: 'Pendiente' },
+                { value: 'finalizado', label: 'Finalizado' },
+                { value: 'cancelado', label: 'Cancelado' }
+            ]
+        });
+        if (isCancel(newStatus)) return;
+
+        const spinner = ora('Actualizando estado del contrato...').start();
+
+        try {
+            await this.contractsCollection.updateOne(
+                { _id: contractId },
+                { $set: { status: newStatus, updatedAt: new Date() } }
+            );
+            spinner.succeed(chalk.green(`Estado del contrato actualizado a: ${newStatus}`));
+        } catch (e) {
+            spinner.fail(chalk.red(`Error al actualizar estado del contrato: ${e.message}`));
+        }
+
+        await text({ message: 'Presione ENTER para continuar...' });
+    }
+
+    async deleteContract() {
+        UI.displayHeader('> Modo Freelancer > Contratos > Eliminar Contrato');
+
+        const contractId = await this.selectContractInteractive();
+        if (!contractId) return;
+
+        const confirmDelete = await confirm({
+            message: `¿Esta seguro de que desea eliminar el contrato [${contractId}]?`
+        });
+        if (isCancel(confirmDelete) || !confirmDelete) return;
+
+        const spinner = ora('Eliminando contrato...').start();
+
+        try {
+            await this.contractsCollection.deleteOne({ _id: contractId });
+            spinner.succeed(chalk.green('Contrato eliminado correctamente.'));
+        } catch (e) {
+            spinner.fail(chalk.red(`Error al eliminar contrato: ${e.message}`));
+        }
+
+        await text({ message: 'Presione ENTER para continuar...' });
+    }
+
+    async selectContractInteractive() {
+        try {
+            const contracts = await this.contractsCollection.find().toArray();
+            if (!contracts || contracts.length === 0) {
+                console.log(chalk.yellow('[!] No hay contratos registrados en la base de datos.'));
+                await text({ message: 'Presione ENTER para continuar...' });
+                return null;
+            }
+
+            const choices = contracts.map(c => ({
+                value: c._id,
+                label: `[${c._id}] ${c.title || 'Sin titulo'} (Cliente: ${c.clientId})`
+            }));
+
+            const selected = await select({
+                message: 'Seleccione un contrato:',
+                options: choices
+            });
+
+            if (isCancel(selected)) return null;
+            return selected;
+        } catch (e) {
+            console.log(chalk.red(`Error al seleccionar contrato: ${e.message}`));
+            return null;
+        }
+    }
+
+    async projectsMenu() {
+        while (true) {
+            UI.displayHeader('> Modo Freelancer > Gestion de Proyectos');
+
+            const option = await select({
+                message: 'Seleccione una operacion:',
+                options: [
+                    { value: 'create', label: 'Crear Nuevo Proyecto' },
+                    { value: 'list', label: 'Listar Todos los Proyectos' },
+                    { value: 'updateProgress', label: 'Actualizar Avance y Bitacora' },
+                    { value: 'updateStatus', label: 'Cambiar Estado del Proyecto' },
+                    { value: 'back', label: 'Volver al Menu Principal' }
+                ]
+            });
+
+            if (isCancel(option) || option === 'back') break;
+
+            switch (option) {
+                case 'create':
+                    await this.createProject();
+                    break;
+                case 'list':
+                    await this.listProjects();
+                    break;
+                case 'updateProgress':
+                    await this.updateProjectProgress();
+                    break;
+                case 'updateStatus':
+                    await this.updateProjectStatus();
+                    break;
+            }
+        }
+    }
+
+    async createProject() {
+        UI.displayHeader('> Modo Freelancer > Proyectos > Crear Nuevo Proyecto');
+
+        const clientId = await this.selectClientInteractive();
+        if (!clientId) return;
+
+        const name = await text({
+            message: 'Nombre del proyecto:',
+            validate: val => (!val || val.trim().length === 0) ? 'El nombre del proyecto es obligatorio' : undefined
+        });
+        if (isCancel(name)) return;
+
+        const description = await text({ message: 'Descripcion del proyecto:' });
+        if (isCancel(description)) return;
+
+        const budgetStr = await text({
+            message: 'Presupuesto total (USD):',
+            validate: val => (!val || isNaN(val) || Number(val) < 0) ? 'Ingrese un presupuesto valido' : undefined
+        });
+        if (isCancel(budgetStr)) return;
+
+        const spinner = ora('Creando proyecto...').start();
+
+        try {
+            const newProjectId = await generateNextId(this.projectsCollection, 'A');
+
+            const newProject = new Project({
+                id: newProjectId,
+                name: name.trim(),
+                description: description ? description.trim() : '',
+                clientId: clientId,
+                contractId: null,
+                status: 'activo',
+                progress: 0,
+                budget: parseFloat(budgetStr),
+                logs: []
+            });
+
+            await this.projectsCollection.insertOne(newProject);
+            spinner.succeed(chalk.green(`Proyecto creado exitosamente con ID: ${newProjectId}`));
+        } catch (e) {
+            spinner.fail(chalk.red(`Error al crear proyecto: ${e.message}`));
+        }
+
+        await text({ message: 'Presione ENTER para continuar...' });
+    }
+
+    async listProjects() {
+        UI.displayHeader('> Modo Freelancer > Proyectos > Listado General');
+
+        try {
+            const projects = await this.projectsCollection.find().toArray();
+
+            if (!projects || projects.length === 0) {
+                console.log(boxen(chalk.yellow('[!] No hay proyectos registrados.'), { padding: 1, margin: 1, borderStyle: 'round' }));
+            } else {
+                const table = new Table({
+                    head: [chalk.cyan('ID'), chalk.cyan('Nombre'), chalk.cyan('Cliente ID'), chalk.cyan('Estado'), chalk.cyan('Progreso'), chalk.cyan('Presupuesto')],
+                    colWidths: [10, 25, 12, 15, 15, 15]
+                });
+
+                projects.forEach(p => {
                     table.push([
                         p._id || 'N/A',
                         p.name || 'Sin nombre',
-                        this.renderBadge(p.status),
+                        p.clientId || 'N/A',
+                        this.getBadge('projects', p.status),
                         this.renderProgressBar(p.progress || 0),
                         `$${p.budget || 0}`
                     ]);
@@ -695,351 +856,555 @@ export class ClientMenu {
                 console.log(table.toString());
             }
         } catch (e) {
-            console.log(chalk.red(`Error al cargar proyectos: ${e.message}`));
+            console.log(chalk.red(`Error al listar proyectos: ${e.message}`));
         }
 
         await text({ message: 'Presione ENTER para continuar...' });
     }
 
-    async crearEntregableCliente() {
-        UI.displayHeader('> Panel de Cliente > Registrar Solicitud de Entregable / Requisito para Freelance');
+    async syncProjectProgressFromDeliverables(projectId) {
+        if (!projectId) return 0;
+        const deliverables = await this.deliverablesCollection.find({ projectId: projectId }).toArray();
+        if (!deliverables || deliverables.length === 0) return 0;
+
+        const completed = deliverables.filter(d => ['completado', 'aprobado'].includes(d.status)).length;
+        const progressNum = Math.round((completed / deliverables.length) * 100);
+
+        const updateData = { progress: progressNum, updatedAt: new Date() };
+        if (progressNum === 100) {
+            updateData.status = 'completado';
+        } else {
+            const project = await this.projectsCollection.findOne({ _id: projectId });
+            if (project && project.status === 'completado') {
+                updateData.status = 'activo';
+            }
+        }
+
+        await this.projectsCollection.updateOne({ _id: projectId }, { $set: updateData });
+
+        console.log(chalk.cyan(`\nProgreso del Proyecto [${projectId}]: ${this.renderProgressBar(progressNum)} (${completed}/${deliverables.length} entregables completados/aprobados)\n`));
+        return progressNum;
+    }
+
+    async updateProjectProgress() {
+        UI.displayHeader('> Modo Freelancer > Proyectos > Actualizar Bitacora y Estado');
+
+        const projectId = await this.selectProjectInteractive();
+        if (!projectId) return;
+
+        const estadoAvance = await select({
+            message: 'Seleccione el estado de avance actual:',
+            options: [
+                { value: 'en progreso', label: 'En Progreso' },
+                { value: 'atrasado', label: 'Atrasado' },
+                { value: 'finalizado', label: 'Finalizado' }
+            ]
+        });
+        if (isCancel(estadoAvance)) return;
+
+        const deliverables = await this.deliverablesCollection.find({ projectId: projectId }).toArray();
+        let progressNum = 0;
+
+        if (estadoAvance === 'finalizado') {
+            progressNum = 100;
+        } else if (deliverables.length > 0) {
+            const completedCount = deliverables.filter(d => ['completado', 'aprobado'].includes(d.status)).length;
+            progressNum = Math.round((completedCount / deliverables.length) * 100);
+        }
+
+        const logNote = await text({
+            message: 'Nota o detalle del avance para la bitacora:',
+            validate: val => (!val || val.trim().length === 0) ? '[!] La nota de la bitacora es requerida' : undefined
+        });
+        if (isCancel(logNote)) return;
+
+        const spinner = ora('Actualizando avance calculado por entregables...').start();
 
         try {
-            const proyectos = await this.projectsCollection.find({ clientId: this.currentClient._id }).toArray();
+            const newLog = {
+                note: logNote.trim(),
+                state: estadoAvance,
+                percentage: progressNum,
+                date: new Date()
+            };
 
-            if (!proyectos || proyectos.length === 0) {
-                console.log(boxen(chalk.yellow('[!] No tiene proyectos registrados para asignar entregables.'), { padding: 1, margin: 1, borderStyle: 'round' }));
-                await text({ message: 'Presione ENTER para continuar...' });
-                return;
+            const updateData = {
+                progress: progressNum,
+                updatedAt: new Date()
+            };
+
+            if (estadoAvance === 'finalizado') {
+                updateData.status = 'completado';
             }
 
-            const choices = proyectos.map(p => ({
+            await this.projectsCollection.updateOne(
+                { _id: projectId },
+                {
+                    $set: updateData,
+                    $push: { logs: newLog }
+                }
+            );
+            spinner.succeed(
+                chalk.green(
+                    `Bitacora actualizada. Avance: ${this.renderProgressBar(progressNum)} (${deliverables.length} entregables).${
+                        estadoAvance === 'finalizado' ? ' Proyecto completado.' : ''
+                    }`
+                )
+            );
+        } catch (e) {
+            spinner.fail(chalk.red(`[!] Error al actualizar avance: ${e.message}`));
+        }
+
+        await text({ message: 'Presione ENTER para continuar...' });
+    }
+
+    async updateProjectStatus() {
+        UI.displayHeader('> Modo Freelancer > Proyectos > Cambiar Estado');
+
+        const projectId = await this.selectProjectInteractive();
+        if (!projectId) return;
+
+        const newStatus = await select({
+            message: 'Seleccione el nuevo estado:',
+            options: [
+                { value: 'activo', label: 'Activo' },
+                { value: 'pausado', label: 'Pausado' },
+                { value: 'completado', label: 'Completado' },
+                { value: 'cancelado', label: 'Cancelado' }
+            ]
+        });
+        if (isCancel(newStatus)) return;
+
+        const spinner = ora('Cambiando estado...').start();
+
+        try {
+            await this.projectsCollection.updateOne(
+                { _id: projectId },
+                { $set: { status: newStatus, updatedAt: new Date() } }
+            );
+            spinner.succeed(chalk.green(`Estado actualizado a: ${newStatus}`));
+        } catch (e) {
+            spinner.fail(chalk.red(`Error al cambiar estado: ${e.message}`));
+        }
+
+        await text({ message: 'Presione ENTER para continuar...' });
+    }
+
+    async selectProjectInteractive() {
+        try {
+            const projects = await this.projectsCollection.find().toArray();
+            if (!projects || projects.length === 0) {
+                console.log(chalk.yellow('[!] No hay proyectos registrados en la base de datos.'));
+                await text({ message: 'Presione ENTER para continuar...' });
+                return null;
+            }
+
+            const choices = projects.map(p => ({
                 value: p._id,
                 label: `[${p._id}] ${p.name} (Progreso: ${p.progress || 0}%)`
             }));
 
-            const projectIdStr = await select({
-                message: 'Seleccione el proyecto al que pertenece el entregable:',
+            const selected = await select({
+                message: 'Seleccione un proyecto:',
                 options: choices
             });
-            if (isCancel(projectIdStr)) return;
 
-            const title = await text({
-                message: 'Ingrese el titulo del entregable:',
-                placeholder: 'Ej. Diseno de prototipos UI/UX',
-                validate(value) {
-                    const validacion = AppValidator.validateRequired(value, 'El titulo del entregable');
-                    if (validacion !== true) return validacion;
-                }
-            });
-            if (isCancel(title)) return;
-
-            const durationOption = await select({
-                message: 'Seleccione el tiempo de entrega / fecha límite:',
-                options: [
-                    { value: '1_week', label: '1 Semana (7 días)' },
-                    { value: '1_month', label: '1 Mes (30 días)' },
-                    { value: 'custom', label: 'Ingresar fecha manualmente (YYYY-MM-DD)' }
-                ]
-            });
-            if (isCancel(durationOption)) return;
-
-            let fechaFinal = null;
-
-            if (durationOption === '1_week') {
-                fechaFinal = dayjs().add(7, 'day').toDate();
-            } else if (durationOption === '1_month') {
-                fechaFinal = dayjs().add(30, 'day').toDate();
-            } else {
-                const deadlineInput = await text({
-                    message: 'Ingrese la fecha limite (YYYY-MM-DD):',
-                    placeholder: dayjs().add(7, 'day').format('YYYY-MM-DD'),
-                    validate(value) {
-                        if (!value || value.trim() === '') return 'La fecha es requerida';
-                        if (!AppValidator.isValidDeadline(value.trim())) {
-                            return '[ADVERTENCIA] Formato de fecha invalido. Use YYYY-MM-DD (ej. 2026-12-31).';
-                        }
-                    }
-                });
-                if (isCancel(deadlineInput)) return;
-                fechaFinal = dayjs(deadlineInput.trim()).toDate();
-            }
-
-            const spinner = ora('Guardando entregable en la base de datos...').start();
-            const newDeliverableId = await generateNextId(this.deliverablesCollection, 'E');
-
-            const nuevoEntregable = new Deliverable({
-                id: newDeliverableId,
-                title: title.trim(),
-                projectId: projectIdStr,
-                clientId: this.currentClient._id,
-                deadline: fechaFinal,
-                dueDate: fechaFinal,
-                status: 'pendiente'
-            });
-
-            await this.deliverablesCollection.insertOne(nuevoEntregable);
-            spinner.succeed(chalk.green(`[OK] Entregable registrado correctamente con ID: ${newDeliverableId}`));
-
+            if (isCancel(selected)) return null;
+            return selected;
         } catch (e) {
-            console.log(chalk.red(`Error al registrar el entregable: ${e.message}`));
+            console.log(chalk.red(`Error al seleccionar proyecto: ${e.message}`));
+            return null;
         }
-
-        await text({ message: 'Presione ENTER para continuar...' });
     }
 
-    async verAvancesYBitacoraProyectos() {
-        UI.displayHeader('> Panel de Cliente > Avances, Tareas y Bitacora de Proyectos');
-
-        try {
-            const proyectos = await this.projectsCollection.find({ clientId: this.currentClient._id }).toArray();
-
-            if (!proyectos || proyectos.length === 0) {
-                console.log(boxen(chalk.yellow('[!] No tiene proyectos asociados para ver bitacora.'), { padding: 1, margin: 1, borderStyle: 'round' }));
-                await text({ message: 'Presione ENTER para continuar...' });
-                return;
-            }
-
-            const projectIds = proyectos.map(p => p._id);
-            const entregables = await this.deliverablesCollection.find({ projectId: { $in: projectIds } }).toArray();
-
-            proyectos.forEach(p => {
-                console.log('\n' + chalk.bold.cyan(`===== PROYECTO: [${p._id}] ${p.name} =====`));
-                console.log(`Estado: ${this.renderBadge(p.status)} | Progreso: ${this.renderProgressBar(p.progress || 0)} | Presupuesto: $${p.budget || 0}`);
-
-                console.log(chalk.bold.yellow('\n--- Bitacora de Avances / Logs ---'));
-                if (p.logs && p.logs.length > 0) {
-                    p.logs.forEach((log, idx) => {
-                        const fecha = log.date ? dayjs(log.date).format('YYYY-MM-DD HH:mm') : 'N/A';
-                        console.log(` [${idx + 1}] ${fecha} - (${log.percentage}%): ${log.note}`);
-                    });
-                } else {
-                    console.log(chalk.gray(' (Sin registros de avance en la bitacora)'));
-                }
-
-                console.log(chalk.bold.magenta('\n--- Entregables y Requisitos Asignados ---'));
-                const entProy = entregables.filter(e => e.projectId === p._id);
-                if (entProy && entProy.length > 0) {
-                    entProy.forEach(ent => {
-                        const fecha = ent.dueDate || ent.deadline;
-                        const fechaFormateada = fecha ? dayjs(fecha).format('YYYY-MM-DD') : 'N/A';
-                        console.log(` - ${this.renderBadge(ent.status)} [${ent._id}] ${ent.title} (Fecha Limite: ${fechaFormateada})`);
-                    });
-                } else {
-                    console.log(chalk.gray(' (No hay entregables o tareas registradas para este proyecto)'));
-                }
-            });
-
-        } catch (e) {
-            console.log(chalk.red(`Error al cargar la bitacora de avances: ${e.message}`));
-        }
-
-        await text({ message: '\nPresione ENTER para volver...' });
-    }
-
-    async gestionarFinanzas() {
+    async deliverablesMenu() {
         while (true) {
-            UI.displayHeader('> Panel de Cliente > Estado Financiero y Pagos');
+            UI.displayHeader('> Modo Freelancer > Gestion de Entregables');
 
             const option = await select({
                 message: 'Seleccione una operacion:',
                 options: [
-                    { value: 'list', label: 'Ver Movimientos Financieros' },
-                    { value: 'pay', label: 'Registrar Pago / Transferencia' },
-                    { value: 'back', label: 'Volver al Menu' }
+                    { value: 'create', label: 'Crear Entregable para Proyecto' },
+                    { value: 'list', label: 'Listar Entregables por Proyecto' },
+                    { value: 'updateStatus', label: 'Cambiar Estado de Entregable' },
+                    { value: 'back', label: 'Volver al Menu Principal' }
                 ]
             });
 
             if (isCancel(option) || option === 'back') break;
 
-            if (option === 'list') await this.verMovimientosFinancieros();
-            if (option === 'pay') await this.registrarPagoCliente();
+            switch (option) {
+                case 'create':
+                    await this.createDeliverable();
+                    break;
+                case 'list':
+                    await this.listDeliverablesByProject();
+                    break;
+                case 'updateStatus':
+                    await this.updateDeliverableStatus();
+                    break;
+            }
         }
     }
 
-    async verMovimientosFinancieros() {
-        UI.displayHeader('> Panel de Cliente > Estado Financiero y Movimientos');
+    async createDeliverable() {
+        UI.displayHeader('> Modo Freelancer > Entregables > Crear Entregable');
+
+        const projectId = await this.selectProjectInteractive();
+        if (!projectId) return;
+
+        const title = await text({
+            message: 'Titulo del entregable:',
+            validate: val => (!val || val.trim().length === 0) ? 'El titulo es requerido' : undefined
+        });
+        if (isCancel(title)) return;
+
+        const durationOption = await select({
+            message: 'Seleccione el tiempo de entrega / fecha límite:',
+            options: [
+                { value: '1_week', label: '📅 1 Semana (7 días)' },
+                { value: '1_month', label: '📅 1 Mes (30 días)' },
+                { value: 'custom', label: '✍️ Ingresar fecha manualmente (YYYY-MM-DD)' }
+            ]
+        });
+        if (isCancel(durationOption)) return;
+
+        let deadlineDate = null;
+        if (durationOption === '1_week') {
+            deadlineDate = dayjs().add(7, 'day').toDate();
+        } else if (durationOption === '1_month') {
+            deadlineDate = dayjs().add(30, 'day').toDate();
+        } else {
+            const deadlineInput = await text({
+                message: 'Fecha limite (YYYY-MM-DD):',
+                placeholder: dayjs().add(7, 'day').format('YYYY-MM-DD'),
+                validate: val => (!val || val.trim().length === 0) ? 'La fecha es requerida' : undefined
+            });
+            if (isCancel(deadlineInput)) return;
+            deadlineDate = dayjs(deadlineInput.trim()).toDate();
+        }
+
+        const spinner = ora('Guardando entregable...').start();
 
         try {
-            const proyectos = await this.projectsCollection.find({ clientId: this.currentClient._id }).toArray();
-            const projectIds = proyectos.map(p => p._id);
+            const newDeliverableId = await generateNextId(this.deliverablesCollection, 'E');
 
-            const movimientos = await this.financesCollection.find({
-                $or: [
-                    { clientId: this.currentClient._id },
-                    { projectId: { $in: projectIds } }
-                ]
-            }).toArray();
+            const nuevoEntregable = new Deliverable({
+                id: newDeliverableId,
+                title: title.trim(),
+                projectId: projectId,
+                deadline: deadlineDate,
+                dueDate: deadlineDate,
+                status: 'pendiente'
+            });
 
-            if (!movimientos || movimientos.length === 0) {
-                console.log(boxen(chalk.yellow('[!] No hay movimientos financieros registrados.'), { padding: 1, margin: 1, borderStyle: 'round' }));
-            } else {
-                const table = new Table({
-                    head: [chalk.cyan('Referencia'), chalk.cyan('Tipo'), chalk.cyan('Monto (USD)'), chalk.cyan('Concepto'), chalk.cyan('Fecha')],
-                    colWidths: [15, 12, 15, 30, 20]
-                });
+            await this.deliverablesCollection.insertOne(nuevoEntregable);
+            await this.syncProjectProgressFromDeliverables(projectId);
 
-                let totalAbonado = 0;
-
-                movimientos.forEach(m => {
-                    const monto = Number(m.amount) || 0;
-                    if (m.type === 'ingreso' || m.type === 'INCOME') totalAbonado += monto;
-
-                    table.push([
-                        m.referenceCode || m.reference || m._id || 'N/A',
-                        this.renderBadge(m.type),
-                        `$${monto.toFixed(2)}`,
-                        m.concept || m.description || m.concepto || 'S/D',
-                        m.createdAt ? dayjs(m.createdAt).format('YYYY-MM-DD HH:mm') : 'N/A'
-                    ]);
-                });
-
-                console.log(table.toString());
-                console.log(boxen(chalk.bold.green(`Total Abonado por el Cliente: $${totalAbonado.toFixed(2)} USD`), { padding: 1, margin: 1, borderStyle: 'double' }));
-            }
+            spinner.succeed(chalk.green(`Entregable registrado con exito con ID: ${newDeliverableId}`));
         } catch (e) {
-            console.log(chalk.red(`Error al cargar los movimientos financieros: ${e.message}`));
+            spinner.fail(chalk.red(`Error al registrar entregable: ${e.message}`));
         }
 
         await text({ message: 'Presione ENTER para continuar...' });
     }
 
-    async registrarPagoCliente() {
-        UI.displayHeader('REGISTRAR PAGO / ABONO DE PROYECTO');
+    async listDeliverablesByProject() {
+        UI.displayHeader('> Modo Freelancer > Entregables > Listar por Proyecto');
+
+        const projectId = await this.selectProjectInteractive();
+        if (!projectId) return;
+
         try {
-            const proyectos = await this.projectsCollection.find({}).toArray();
-            if (proyectos.length === 0) {
-                console.log(chalk.yellow('No hay proyectos registrados para realizar abonos.'));
+            const deliverables = await this.deliverablesCollection.find({ projectId: projectId }).toArray();
+
+            if (!deliverables || deliverables.length === 0) {
+                console.log(boxen(chalk.yellow('[!] No hay entregables asignados a este proyecto.'), { padding: 1, margin: 1, borderStyle: 'round' }));
+            } else {
+                const table = new Table({
+                    head: [chalk.cyan('ID'), chalk.cyan('Titulo'), chalk.cyan('Estado'), chalk.cyan('Fecha Limite')],
+                    colWidths: [10, 35, 18, 15]
+                });
+
+                deliverables.forEach(d => {
+                    const fecha = d.dueDate || d.deadline;
+                    table.push([
+                        d._id || 'N/A',
+                        d.title || 'Sin titulo',
+                        this.getBadge('deliverables', d.status),
+                        fecha ? dayjs(fecha).format('YYYY-MM-DD') : 'N/A'
+                    ]);
+                });
+
+                console.log(table.toString());
+            }
+        } catch (e) {
+            console.log(chalk.red(`Error al consultar entregables: ${e.message}`));
+        }
+
+        await text({ message: 'Presione ENTER para continuar...' });
+    }
+
+    async updateDeliverableStatus() {
+        UI.displayHeader('> Modo Freelancer > Entregables > Cambiar Estado');
+
+        const projectId = await this.selectProjectInteractive();
+        if (!projectId) return;
+
+        try {
+            const deliverables = await this.deliverablesCollection.find({ projectId: projectId }).toArray();
+
+            if (!deliverables || deliverables.length === 0) {
+                console.log(chalk.yellow('[!] No hay entregables para este proyecto.'));
                 await text({ message: 'Presione ENTER para continuar...' });
                 return;
             }
 
-            const projectOptions = proyectos.map(p => ({
-                value: String(p._id),
-                label: `[${p._id}] ${p.name} - Presupuesto: $${p.budget || p.price || 0}`
+            const choices = deliverables.map(d => ({
+                value: d._id,
+                label: `[${d._id}] ${d.title} (${d.status})`
             }));
 
-            const projectIdStr = await select({
-                message: 'Seleccione el proyecto al que desea abonar:',
-                options: projectOptions
+            const deliverableId = await select({
+                message: 'Seleccione el entregable:',
+                options: choices
             });
+            if (isCancel(deliverableId)) return;
 
-            if (isCancel(projectIdStr)) return;
+            const selectedDeliverable = deliverables.find(d => d._id === deliverableId);
 
-            const proyectoSel = proyectos.find(p => String(p._id) === projectIdStr);
-            const totalBudget = parseFloat(proyectoSel.budget || proyectoSel.price || 0);
+            if (selectedDeliverable && selectedDeliverable.status === 'completado') {
+                console.log(chalk.yellow('\n[!] ADVERTENCIA: Este entregable ya se encuentra en estado COMPLETADO.\n'));
+            }
 
-            const tipoPago = await select({
-                message: 'Seleccione la modalidad de abono:',
+            const newStatus = await select({
+                message: 'Seleccione el nuevo estado:',
                 options: [
-                    { value: '100', label: `100% - Total del presupuesto ($${totalBudget.toFixed(2)} USD)` },
-                    { value: '50', label: `50% - Mitad del presupuesto ($${(totalBudget * 0.5).toFixed(2)} USD)` },
-                    { value: 'custom_percent', label: 'Porcentaje personalizado (%)' },
-                    { value: 'custom_amount', label: 'Monto fijo personalizado (USD)' }
+                    { value: 'pendiente', label: 'Pendiente' },
+                    { value: 'en proceso', label: 'En Proceso' },
+                    { value: 'completado', label: 'Completado' }
+                ]
+            });
+            if (isCancel(newStatus)) return;
+
+            const spinner = ora('Actualizando entregable y sincronizando progreso del proyecto...').start();
+
+            await this.deliverablesCollection.updateOne(
+                { _id: deliverableId },
+                { $set: { status: newStatus, updatedAt: new Date() } }
+            );
+
+            spinner.succeed(chalk.green(`Estado de entregable actualizado a: ${newStatus}`));
+            await this.syncProjectProgressFromDeliverables(projectId);
+
+        } catch (e) {
+            console.log(chalk.red(`Error al actualizar entregable: ${e.message}`));
+        }
+
+        await text({ message: 'Presione ENTER para continuar...' });
+    }
+
+    async financesMenu() {
+        while (true) {
+            UI.displayHeader('> Modo Freelancer > Gestion Financiera');
+
+            const option = await select({
+                message: 'Seleccione una operacion:',
+                options: [
+                    { value: 'addTransaction', label: 'Registrar Transaccion (Ingreso / Egreso)' },
+                    { value: 'list', label: 'Ver Movimientos Financieros' },
+                    { value: 'clientBalance', label: 'Balance Neto por Cliente' },
+                    { value: 'back', label: 'Volver al Menu Principal' }
                 ]
             });
 
-            if (isCancel(tipoPago)) return;
+            if (isCancel(option) || option === 'back') break;
 
-            let amountToPay = 0;
-
-            if (tipoPago === '100') {
-                amountToPay = totalBudget;
-            } else if (tipoPago === '50') {
-                amountToPay = totalBudget * 0.5;
-            } else if (tipoPago === 'custom_percent') {
-                const percentStr = await text({
-                    message: 'Ingrese el porcentaje a abonar (1-100):',
-                    validate(val) {
-                        const num = parseFloat(val);
-                        if (isNaN(num) || num <= 0 || num > 100) return 'Ingrese un porcentaje valido entre 1 y 100.';
-                    }
-                });
-                if (isCancel(percentStr)) return;
-                amountToPay = (totalBudget * parseFloat(percentStr)) / 100;
-            } else if (tipoPago === 'custom_amount') {
-                const customAmountStr = await text({
-                    message: 'Monto a pagar (USD):',
-                    validate(val) {
-                        const num = parseFloat(val);
-                        if (isNaN(num) || num <= 0) return 'Ingrese un monto valido mayor a 0.';
-                    }
-                });
-                if (isCancel(customAmountStr)) return;
-                amountToPay = parseFloat(customAmountStr);
+            switch (option) {
+                case 'addTransaction':
+                    await this.addTransaction();
+                    break;
+                case 'list':
+                    await this.listFinances();
+                    break;
+                case 'clientBalance':
+                    await this.showFinancialBalance();
+                    break;
             }
+        }
+    }
 
-            console.log(chalk.cyan(`\nMonto a abonar: $${amountToPay.toFixed(2)} USD\n`));
+    async addTransaction() {
+        UI.displayHeader('> Modo Freelancer > Finanzas > Registrar Transaccion');
 
-            const defaultRef = await generateNextId(this.financesCollection, 'SPF');
+        const type = await select({
+            message: 'Seleccione el tipo de transacción:',
+            options: [
+                { value: 'ingreso', label: '💰 Ingreso (Abono / Pago de cliente)' },
+                { value: 'egreso', label: '💸 Egreso (Gasto operativo / servicio / insumo)' }
+            ]
+        });
+        if (isCancel(type)) return;
 
-            const referenceInput = await text({
-                message: 'Ingrese el codigo de referencia (Ej: SPF-001):',
-                initialValue: defaultRef,
-                validate(val) {
-                    if (!val || val.trim().length === 0) return 'El codigo de referencia no puede estar vacio.';
+        const concept = await text({
+            message: 'Título / Concepto de la transacción:',
+            placeholder: type === 'ingreso' ? 'Ej. Abono del 50%' : 'Ej. Compra de Hosting / Dominio',
+            validate: val => (!val || val.trim().length === 0) ? 'El concepto es obligatorio' : undefined
+        });
+        if (isCancel(concept)) return;
+
+        const description = await text({
+            message: 'Descripción detallada (opcional):',
+            placeholder: 'Ej. Detalles adicionales sobre la transacción'
+        });
+        if (isCancel(description)) return;
+
+        const projectId = await this.selectProjectInteractive();
+        if (!projectId) return;
+
+        const project = await this.projectsCollection.findOne({ _id: projectId });
+        if (!project) {
+            console.log(chalk.red('[!] Proyecto no encontrado.'));
+            await text({ message: 'Presione ENTER para continuar...' });
+            return;
+        }
+
+        const amountStr = await text({
+            message: `Monto en USD (${type.toUpperCase()}):`,
+            validate: val => (isNaN(val) || parseFloat(val) <= 0) ? 'Ingrese un monto numérico válido mayor a 0' : undefined
+        });
+        if (isCancel(amountStr)) return;
+
+        const amount = parseFloat(amountStr);
+        const spinner = ora('Registrando transacción...').start();
+
+        try {
+            const autoRefId = await generateNextId(this.financesCollection, 'SPF');
+
+            const newTransaction = new Transaction({
+                id: autoRefId,
+                projectId: projectId,
+                clientId: project.clientId || null,
+                type: type,
+                concept: concept.trim(),
+                description: description ? description.trim() : concept.trim(),
+                amount: amount,
+                referenceCode: autoRefId
+            });
+
+            await this.financesCollection.insertOne(newTransaction);
+
+            const sign = type === 'ingreso' ? '+' : '-';
+            const color = type === 'ingreso' ? chalk.green : chalk.red;
+
+            spinner.succeed(color(`Transacción de ${type.toUpperCase()} registrada con exito.`));
+
+            console.log(boxen([
+                chalk.bold(type === 'ingreso' ? '💰 INGRESO REGISTRADO' : '💸 EGRESO REGISTRADO'),
+                '--------------------------------------------------',
+                `ID / Ref:     ${autoRefId}`,
+                `Proyecto ID:  ${projectId}`,
+                `Concepto:     ${concept.trim()}`,
+                `Monto:        ${color(`${sign}$${amount.toFixed(2)} USD`)}`,
+                `Fecha:        ${dayjs().format('YYYY-MM-DD HH:mm')}`
+            ].join('\n'), { padding: 1, margin: 1, borderStyle: 'round', borderColor: type === 'ingreso' ? 'green' : 'red' }));
+
+        } catch (e) {
+            spinner.fail(chalk.red(`[!] Error al registrar transaccion: ${e.message}`));
+        }
+
+        await text({ message: 'Presione ENTER para continuar...' });
+    }
+
+    async listFinances() {
+        UI.displayHeader('> Modo Freelancer > Finanzas > Movimientos Registrados');
+
+        try {
+            const transactions = await this.financesCollection.find().toArray();
+
+            if (!transactions || transactions.length === 0) {
+                console.log(boxen(chalk.yellow('[!] No hay movimientos financieros registrados.'), { padding: 1, margin: 1, borderStyle: 'round' }));
+            } else {
+                const table = new Table({
+                    head: [chalk.cyan('Referencia'), chalk.cyan('Tipo'), chalk.cyan('Proyecto ID'), chalk.cyan('Monto (USD)'), chalk.cyan('Concepto'), chalk.cyan('Fecha')],
+                    colWidths: [15, 12, 12, 15, 25, 18]
+                });
+
+                transactions.forEach(t => {
+                    const isEgreso = t.type === 'egreso';
+                    const amountFormatted = isEgreso
+                        ? chalk.red(`-$${Number(t.amount || 0).toFixed(2)}`)
+                        : chalk.green(`+$${Number(t.amount || 0).toFixed(2)}`);
+
+                    table.push([
+                        t.referenceCode || t.reference || t._id || 'N/A',
+                        this.getBadge('finances', t.type),
+                        t.projectId || 'N/A',
+                        amountFormatted,
+                        t.concept || t.description || t.concepto || 'Sin concepto',
+                        t.createdAt ? dayjs(t.createdAt).format('YYYY-MM-DD HH:mm') : 'N/A'
+                    ]);
+                });
+
+                console.log(table.toString());
+            }
+        } catch (e) {
+            console.log(chalk.red(`Error al listar finanzas: ${e.message}`));
+        }
+
+        await text({ message: 'Presione ENTER para continuar...' });
+    }
+
+    async showFinancialBalance() {
+        UI.displayHeader('> Modo Freelancer > Finanzas > Balance Neto por Cliente');
+
+        const clientId = await this.selectClientInteractive();
+        if (!clientId) return;
+
+        const spinner = ora('Calculando balance neto del cliente...').start();
+
+        try {
+            const projects = await this.projectsCollection.find({ clientId }).toArray();
+            const projectIds = projects.map(p => p._id);
+
+            const transactions = await this.financesCollection.find({
+                $or: [
+                    { clientId: clientId },
+                    { projectId: { $in: projectIds } }
+                ]
+            }).toArray();
+
+            let totalIngresos = 0;
+            let totalEgresos = 0;
+
+            transactions.forEach(t => {
+                const amount = Number(t.amount) || 0;
+                if (t.type === 'ingreso' || t.type === 'INCOME') {
+                    totalIngresos += amount;
+                } else if (t.type === 'egreso') {
+                    totalEgresos += amount;
                 }
             });
 
-            if (isCancel(referenceInput)) return;
-            const refUpper = referenceInput.trim().toUpperCase();
+            const netBalance = totalIngresos - totalEgresos;
+            spinner.stop();
 
-            const refExists = await this.financesCollection.findOne({ reference: refUpper });
-            if (refExists) {
-                console.log(chalk.red(`Error: La referencia '${refUpper}' ya existe en la base de datos.`));
-                await text({ message: 'Presione ENTER para continuar...' });
-                return;
-            }
+            const balanceContent = [
+                chalk.bold.cyan(`BALANCE FINANCIERO - CLIENTE [${clientId}]`),
+                '--------------------------------------------------',
+                `Total Ingresos:  ${chalk.green(`+$${totalIngresos.toFixed(2)} USD`)}`,
+                `Total Egresos:   ${chalk.red(`-$${totalEgresos.toFixed(2)} USD`)}`,
+                '--------------------------------------------------',
+                `Balance Neto:    ${netBalance >= 0 ? chalk.bold.green(`$${netBalance.toFixed(2)} USD`) : chalk.bold.red(`-$${Math.abs(netBalance).toFixed(2)} USD`)}`
+            ].join('\n');
 
-            const txSpinner = ora('Procesando transaccion en MongoDB...').start();
-            const session = Database.getClient().startSession();
-
-            try {
-                await session.withTransaction(async () => {
-                    const txId = await generateNextId(this.financesCollection, 'TX');
-                    
-                    const transactionData = new Transaction({
-                        id: txId,
-                        projectId: proyectoSel._id,
-                        clientId: this.currentClient ? this.currentClient._id : null,
-                        type: 'ingreso',
-                        amount: amountToPay,
-                        reference: refUpper,
-                        referenceCode: refUpper,
-                        concept: `Abono a proyecto ${proyectoSel.name}`,
-                        description: `Abono a proyecto ${proyectoSel.name}`
-                    });
-
-                    await this.financesCollection.insertOne(transactionData, { session });
-                });
-
-                txSpinner.succeed('Pago registrado exitosamente.');
-
-                const receiptContent = [
-                    chalk.bold.cyan('COMPROBANTE DE TRANSACCION ATOMICA'),
-                    '--------------------------------------------------------',
-                    `- Proyecto:     ${proyectoSel.name}`,
-                    `- Referencia:   ${refUpper}`,
-                    `- Monto Abonado: $ ${amountToPay.toFixed(2)} USD`,
-                    `- Fecha:        ${dayjs().format('YYYY-MM-DD HH:mm:ss')}`,
-                    `- Estado:       ${chalk.green.bold('[REGISTRADO EN MONGODB]')}`,
-                    '--------------------------------------------------------'
-                ].join('\n');
-
-                console.log(boxen(receiptContent, { padding: 1, margin: { top: 1, bottom: 1 }, borderStyle: 'double', borderColor: 'green' }));
-
-            } catch (e) {
-                txSpinner.fail(`Error al procesar el pago: ${e.message}`);
-            } finally {
-                await session.endSession();
-            }
-
+            console.log(boxen(balanceContent, { padding: 1, margin: 1, borderStyle: 'double', borderColor: 'cyan' }));
         } catch (e) {
-            console.log(chalk.red(`Error al procesar la operacion financiera: ${e.message}`));
+            spinner.fail(chalk.red(`Error al calcular el balance: ${e.message}`));
         }
 
         await text({ message: 'Presione ENTER para continuar...' });
     }
 }
 
-export default ClientMenu;
+export default FreelanceMenu;
