@@ -2,30 +2,33 @@ import { ObjectId } from 'mongodb';
 import { select, text, password, isCancel } from '@clack/prompts';
 import chalk from 'chalk';
 import validator from 'validator';
-
-import figlet from 'figlet';
-import gradient from 'gradient-string';
 import boxen from 'boxen';
 import Table from 'cli-table3';
-import cliProgress from 'cli-progress';
 import dayjs from 'dayjs';
-import figures from 'figures';
-import logSymbols from 'log-symbols';
 import ora from 'ora';
 
-import Database from '.././config/db.js';
+import Database from '../config/db.js';
 import { UI } from '../utils/ui.js';
 import Deliverable from '../models/Deliverable.js';
+import Contract from '../models/Contract.js';
+import Project from '../models/Project.js';
+import Transaction from '../models/Transaction.js';
+import Client from '../models/Client.js';
 import AppValidator from '../utils/validators.js';
 import { generateNextId } from '../utils/idGenerator.js';
-import ProposalRepository from '../repositories/proposalRepository.js';
 
-/**
- * Submenú exclusivo para el Rol de Cliente con autenticación previa.
- */
+import ProposalRepository from '../repositories/proposalRepository.js';
+import ClientRepository from '../repositories/clientRepository.js';
+import ProjectRepository from '../repositories/projectRepository.js';
+import FinanceRepository from '../repositories/financeRepository.js';
+
 export class ClientMenu {
     constructor() {
-        this.currentClient = null; // Almacena el usuario autenticado en sesión
+        this.currentClient = null;
+        this.proposalRepo = new ProposalRepository();
+        this.clientRepo = new ClientRepository();
+        this.projectRepo = new ProjectRepository();
+        this.financeRepo = new FinanceRepository();
     }
 
     get db() { return Database.getDb(); }
@@ -36,9 +39,6 @@ export class ClientMenu {
     get deliverablesCollection() { return this.db.collection('deliverables'); }
     get financesCollection() { return this.db.collection('finances'); }
 
-    /**
-     * Auxiliar UI: Genera insignias de estado coloridas sin emojis.
-     */
     renderBadge(status) {
         if (!status) return chalk.bgGray.white(' N/A ');
         const st = status.toLowerCase();
@@ -112,11 +112,11 @@ export class ClientMenu {
         if (isCancel(pass)) return false;
 
         const spinner = ora('Verificando credenciales...').start();
-        const client = await this.clientRepo.findByCredentials(email.trim().toLowerCase(), pass);
+        const clientData = await this.clientRepo.findByCredentials(email.trim().toLowerCase(), pass);
 
-        if (client) {
-            this.currentClient = client;
-            spinner.succeed(chalk.green(`Bienvenido de nuevo, ${client.name}!`));
+        if (clientData) {
+            this.currentClient = new Client(clientData);
+            spinner.succeed(chalk.green(`Bienvenido de nuevo, ${this.currentClient.name}!`));
             await text({ message: 'Presione ENTER para continuar al panel...' });
             return true;
         } else {
@@ -162,16 +162,16 @@ export class ClientMenu {
 
         const newClientId = await generateNextId(this.clientsCollection, 'C');
 
-        const newClientDoc = {
-            _id: newClientId,
+        const newClient = new Client({
+            id: newClientId,
             name: name.trim(),
             email: email.trim().toLowerCase(),
             password: pass,
             phone: phone ? phone.trim() : null,
             createdAt: new Date()
-        };
+        });
 
-        await this.clientsCollection.insertOne(newClientDoc);
+        await this.clientsCollection.insertOne(newClient);
         spinner.succeed(chalk.green(`Cliente registrado con exito con ID: ${newClientId}. Ahora puede iniciar sesion.`));
         await text({ message: 'Presione ENTER para continuar...' });
     }
@@ -209,24 +209,20 @@ export class ClientMenu {
         }
     }
 
-    //Banner informativo en amarillo para el Menú Principal del Cliente
     async renderClientBanner() {
         try {
             if (!this.currentClient) return;
 
-            // 1. Contador de propuestas pendientes
             const pendingProposals = await this.proposalsCollection.countDocuments({
                 clientId: this.currentClient._id,
                 status: { $in: ['pendiente', 'PENDIENTE'] }
             });
 
-            // 2. Contador de entregables pendientes de aprobación
             const pendingDeliverables = await this.deliverablesCollection.countDocuments({
                 clientId: this.currentClient._id,
                 status: { $in: ['pendiente_aprobacion', 'en_revision', 'por_aprobar'] }
             });
 
-            // 3. Contador de proyectos pendientes de aprobación final
             const pendingProjects = await this.projectsCollection.countDocuments({
                 clientId: this.currentClient._id,
                 status: { $in: ['pendiente_aprobacion', 'por_aprobar'] }
@@ -238,15 +234,9 @@ export class ClientMenu {
                     '---------------------------------------------------'
                 ];
 
-                if (pendingProposals > 0) {
-                    bannerLines.push(chalk.yellow(`• Tienes ${pendingProposals} propuesta(s) nueva(s) pendiente(s) de revisión.`));
-                }
-                if (pendingDeliverables > 0) {
-                    bannerLines.push(chalk.yellow(`• Tienes ${pendingDeliverables} entregable(s) pendiente(s) de aprobación.`));
-                }
-                if (pendingProjects > 0) {
-                    bannerLines.push(chalk.yellow(`• Tienes ${pendingProjects} proyecto(s) finalizado(s) pendiente(s) de aprobación.`));
-                }
+                if (pendingProposals > 0) bannerLines.push(chalk.yellow(`• Tienes ${pendingProposals} propuesta(s) nueva(s) pendiente(s) de revisión.`));
+                if (pendingDeliverables > 0) bannerLines.push(chalk.yellow(`• Tienes ${pendingDeliverables} entregable(s) pendiente(s) de aprobación.`));
+                if (pendingProjects > 0) bannerLines.push(chalk.yellow(`• Tienes ${pendingProjects} proyecto(s) finalizado(s) pendiente(s) de aprobación.`));
 
                 console.log(
                     boxen(bannerLines.join('\n'), {
@@ -258,11 +248,9 @@ export class ClientMenu {
                 );
             }
         } catch (e) {
-            // Manejo silencioso para no interrumpir el flujo principal
+            // Manejo silencioso de errores de UI
         }
     }
-
-    // SUBMODULO: PROPUESTAS
 
     async gestionarPropuestas() {
         while (true) {
@@ -293,18 +281,10 @@ export class ClientMenu {
             const propuestas = await this.proposalsCollection.find({ clientId: this.currentClient._id }).toArray();
 
             if (!propuestas || propuestas.length === 0) {
-                console.log(
-                    boxen(chalk.yellow('[!] No tiene propuestas registradas por el momento.'), { padding: 1, margin: 1, borderStyle: 'round' })
-                );
+                console.log(boxen(chalk.yellow('[!] No tiene propuestas registradas por el momento.'), { padding: 1, margin: 1, borderStyle: 'round' }));
             } else {
                 const table = new Table({
-                    head: [
-                        chalk.cyan('ID'),
-                        chalk.cyan('Titulo'),
-                        chalk.cyan('Precio (USD)'),
-                        chalk.cyan('Estado'),
-                        chalk.cyan('Fecha')
-                    ],
+                    head: [chalk.cyan('ID'), chalk.cyan('Titulo'), chalk.cyan('Precio (USD)'), chalk.cyan('Estado'), chalk.cyan('Fecha')],
                     colWidths: [10, 30, 15, 18, 15]
                 });
 
@@ -327,7 +307,6 @@ export class ClientMenu {
         await text({ message: 'Presione ENTER para continuar...' });
     }
 
-    //Responder Propuestas con motivo de rechazo obligatorio en caso de negativa
     async responderPropuesta() {
         UI.displayHeader('> Panel de Cliente > Aceptar o Rechazar Propuesta');
 
@@ -338,9 +317,7 @@ export class ClientMenu {
             }).toArray();
 
             if (!pendientes || pendientes.length === 0) {
-                console.log(
-                    boxen(chalk.yellow('[ℹ] No tiene propuestas pendientes por responder.'), { padding: 1, margin: 1, borderStyle: 'round' })
-                );
+                console.log(boxen(chalk.yellow('[ℹ] No tiene propuestas pendientes por responder.'), { padding: 1, margin: 1, borderStyle: 'round' }));
                 await text({ message: 'Presione ENTER para continuar...' });
                 return;
             }
@@ -371,18 +348,12 @@ export class ClientMenu {
             if (action === 'rechazar') {
                 rejectionReason = await text({
                     message: 'Ingrese el motivo por el cual rechaza la propuesta (Obligatorio):',
-                    validate: (val) => {
-                        if (!val || val.trim().length === 0) {
-                            return 'Debe especificar la razón del rechazo para notificar al freelancer.';
-                        }
-                    }
+                    validate: (val) => (!val || val.trim().length === 0) ? 'Debe especificar la razón del rechazo.' : undefined
                 });
                 if (isCancel(rejectionReason)) return;
             }
 
             const spinner = ora('Procesando respuesta...').start();
-            
-            // Búsqueda flexible por ObjectId o String
             const targetId = ObjectId.isValid(selection) ? new ObjectId(selection) : selection;
             const propuestaExistente = await this.proposalsCollection.findOne({
                 $or: [{ _id: targetId }, { _id: selection }]
@@ -422,8 +393,8 @@ export class ClientMenu {
                         );
 
                         newContractId = await generateNextId(this.contractsCollection, 'CT');
-                        const nuevoContrato = {
-                            _id: newContractId,
+                        const nuevoContrato = new Contract({
+                            id: newContractId,
                             code: newContractId,
                             title: String(`Contrato: ${propuestaExistente.title || 'Sin titulo'}`).trim(),
                             terms: `Aprobacion de propuesta ${propuestaExistente._id}`,
@@ -433,15 +404,13 @@ export class ClientMenu {
                             proposalId: actualId,
                             status: 'activo',
                             startDate: new Date(),
-                            endDate: dayjs().add(1, 'month').toDate(),
-                            createdAt: new Date(),
-                            updatedAt: new Date()
-                        };
+                            endDate: dayjs().add(1, 'month').toDate()
+                        });
                         await this.contractsCollection.insertOne(nuevoContrato, { session });
 
                         newProjectId = await generateNextId(this.projectsCollection, 'A');
-                        const nuevoProyecto = {
-                            _id: newProjectId,
+                        const nuevoProyecto = new Project({
+                            id: newProjectId,
                             name: String(propuestaExistente.title || 'Sin titulo').trim(),
                             description: String(propuestaExistente.description || '').trim(),
                             clientId: formattedClientId,
@@ -455,13 +424,10 @@ export class ClientMenu {
                                 state: 'en proceso',
                                 percentage: 0,
                                 date: new Date()
-                            }],
-                            createdAt: new Date(),
-                            updatedAt: new Date()
-                        };
+                            }]
+                        });
                         await this.projectsCollection.insertOne(nuevoProyecto, { session });
 
-                        // Crear notificación de aprobación para el freelancer
                         await this.db.collection('notifications').insertOne({
                             freelancerId: propuestaExistente.freelancerId || propuestaExistente.userId,
                             proposalId: actualId,
@@ -474,7 +440,6 @@ export class ClientMenu {
                     });
 
                     spinner.succeed(chalk.green('[✔] Propuesta aprobada exitosamente.'));
-
                     const cardInfo = [
                         chalk.bold.green('[✔] SE HAN CREADO PROYECTO Y CONTRATO AUTOMATICO'),
                         '--------------------------------------------------',
@@ -492,7 +457,6 @@ export class ClientMenu {
                     await session.endSession();
                 }
             } else {
-                // RECHAZO DE PROPUESTA
                 await this.proposalsCollection.updateOne(
                     { _id: actualId },
                     { 
@@ -504,9 +468,7 @@ export class ClientMenu {
                     }
                 );
 
-                // Crear registro explícito en la colección de notificaciones
-                const notificationsColl = this.db.collection('notifications');
-                await notificationsColl.insertOne({
+                await this.db.collection('notifications').insertOne({
                     freelancerId: propuestaExistente.freelancerId || propuestaExistente.userId,
                     proposalId: actualId,
                     title: 'Propuesta Rechazada',
@@ -526,7 +488,6 @@ export class ClientMenu {
         await text({ message: 'Presione ENTER para continuar...' });
     }
 
-    //Aprobar o Rechazar Entregables asignados al cliente
     async aprobarORechazarEntregable() {
         UI.displayHeader('> Panel de Cliente > Evaluación de Entregables');
         try {
@@ -614,7 +575,6 @@ export class ClientMenu {
         );
     }
 
-    //Aprobar o Rechazar Proyecto Finalizado
     async aprobarORechazarProyecto() {
         UI.displayHeader('> Panel de Cliente > Evaluación de Proyecto Finalizado');
         try {
@@ -682,8 +642,6 @@ export class ClientMenu {
         await text({ message: 'Presione ENTER para continuar...' });
     }
 
-    // SUBMODULO: PROYECTOS Y ENTREGABLES
-
     async gestionarProyectos() {
         while (true) {
             UI.displayHeader('> Panel de Cliente > Gestion de Proyectos y Entregables');
@@ -717,18 +675,10 @@ export class ClientMenu {
             const proyectos = await this.projectsCollection.find({ clientId: this.currentClient._id }).toArray();
 
             if (!proyectos || proyectos.length === 0) {
-                console.log(
-                    boxen(chalk.yellow('[!] No tiene proyectos activos registrados.'), { padding: 1, margin: 1, borderStyle: 'round' })
-                );
+                console.log(boxen(chalk.yellow('[!] No tiene proyectos activos registrados.'), { padding: 1, margin: 1, borderStyle: 'round' }));
             } else {
                 const table = new Table({
-                    head: [
-                        chalk.cyan('ID'),
-                        chalk.cyan('Nombre del Proyecto'),
-                        chalk.cyan('Estado'),
-                        chalk.cyan('Progreso'),
-                        chalk.cyan('Presupuesto')
-                    ],
+                    head: [chalk.cyan('ID'), chalk.cyan('Nombre del Proyecto'), chalk.cyan('Estado'), chalk.cyan('Progreso'), chalk.cyan('Presupuesto')],
                     colWidths: [10, 30, 15, 25, 15]
                 });
 
@@ -758,9 +708,7 @@ export class ClientMenu {
             const proyectos = await this.projectsCollection.find({ clientId: this.currentClient._id }).toArray();
 
             if (!proyectos || proyectos.length === 0) {
-                console.log(
-                    boxen(chalk.yellow('[!] No tiene proyectos registrados para asignar entregables.'), { padding: 1, margin: 1, borderStyle: 'round' })
-                );
+                console.log(boxen(chalk.yellow('[!] No tiene proyectos registrados para asignar entregables.'), { padding: 1, margin: 1, borderStyle: 'round' }));
                 await text({ message: 'Presione ENTER para continuar...' });
                 return;
             }
@@ -776,7 +724,6 @@ export class ClientMenu {
             });
             if (isCancel(projectIdStr)) return;
 
-            // 1. Titulo del entregable
             const title = await text({
                 message: 'Ingrese el titulo del entregable:',
                 placeholder: 'Ej. Diseno de prototipos UI/UX',
@@ -787,7 +734,6 @@ export class ClientMenu {
             });
             if (isCancel(title)) return;
 
-            // 2. Tiempo de entrega / fecha límite con select
             const durationOption = await select({
                 message: 'Seleccione el tiempo de entrega / fecha límite:',
                 options: [
@@ -822,17 +768,15 @@ export class ClientMenu {
             const spinner = ora('Guardando entregable en la base de datos...').start();
             const newDeliverableId = await generateNextId(this.deliverablesCollection, 'E');
 
-            const nuevoEntregable = {
-                _id: newDeliverableId,
+            const nuevoEntregable = new Deliverable({
+                id: newDeliverableId,
                 title: title.trim(),
                 projectId: projectIdStr,
                 clientId: this.currentClient._id,
                 deadline: fechaFinal,
                 dueDate: fechaFinal,
-                status: 'pendiente',
-                createdAt: new Date(),
-                updatedAt: new Date()
-            };
+                status: 'pendiente'
+            });
 
             await this.deliverablesCollection.insertOne(nuevoEntregable);
             spinner.succeed(chalk.green(`[OK] Entregable registrado correctamente con ID: ${newDeliverableId}`));
@@ -851,9 +795,7 @@ export class ClientMenu {
             const proyectos = await this.projectsCollection.find({ clientId: this.currentClient._id }).toArray();
 
             if (!proyectos || proyectos.length === 0) {
-                console.log(
-                    boxen(chalk.yellow('[!] No tiene proyectos asociados para ver bitacora.'), { padding: 1, margin: 1, borderStyle: 'round' })
-                );
+                console.log(boxen(chalk.yellow('[!] No tiene proyectos asociados para ver bitacora.'), { padding: 1, margin: 1, borderStyle: 'round' }));
                 await text({ message: 'Presione ENTER para continuar...' });
                 return;
             }
@@ -895,8 +837,6 @@ export class ClientMenu {
         await text({ message: '\nPresione ENTER para volver...' });
     }
 
-    // SUBMODULO: FINANZAS Y PAGOS
-
     async gestionarFinanzas() {
         while (true) {
             UI.displayHeader('> Panel de Cliente > Estado Financiero y Pagos');
@@ -932,18 +872,10 @@ export class ClientMenu {
             }).toArray();
 
             if (!movimientos || movimientos.length === 0) {
-                console.log(
-                    boxen(chalk.yellow('[!] No hay movimientos financieros registrados.'), { padding: 1, margin: 1, borderStyle: 'round' })
-                );
+                console.log(boxen(chalk.yellow('[!] No hay movimientos financieros registrados.'), { padding: 1, margin: 1, borderStyle: 'round' }));
             } else {
                 const table = new Table({
-                    head: [
-                        chalk.cyan('Referencia'),
-                        chalk.cyan('Tipo'),
-                        chalk.cyan('Monto (USD)'),
-                        chalk.cyan('Concepto'),
-                        chalk.cyan('Fecha')
-                    ],
+                    head: [chalk.cyan('Referencia'), chalk.cyan('Tipo'), chalk.cyan('Monto (USD)'), chalk.cyan('Concepto'), chalk.cyan('Fecha')],
                     colWidths: [15, 12, 15, 30, 20]
                 });
 
@@ -951,10 +883,10 @@ export class ClientMenu {
 
                 movimientos.forEach(m => {
                     const monto = Number(m.amount) || 0;
-                    if (m.type === 'ingreso') totalAbonado += monto;
+                    if (m.type === 'ingreso' || m.type === 'INCOME') totalAbonado += monto;
 
                     table.push([
-                        m.referenceCode || m._id || 'N/A',
+                        m.referenceCode || m.reference || m._id || 'N/A',
                         this.renderBadge(m.type),
                         `$${monto.toFixed(2)}`,
                         m.concept || m.description || m.concepto || 'S/D',
@@ -963,9 +895,7 @@ export class ClientMenu {
                 });
 
                 console.log(table.toString());
-                console.log(
-                    boxen(chalk.bold.green(`Total Abonado por el Cliente: $${totalAbonado.toFixed(2)} USD`), { padding: 1, margin: 1, borderStyle: 'double' })
-                );
+                console.log(boxen(chalk.bold.green(`Total Abonado por el Cliente: $${totalAbonado.toFixed(2)} USD`), { padding: 1, margin: 1, borderStyle: 'double' }));
             }
         } catch (e) {
             console.log(chalk.red(`Error al cargar los movimientos financieros: ${e.message}`));
@@ -974,160 +904,142 @@ export class ClientMenu {
         await text({ message: 'Presione ENTER para continuar...' });
     }
 
-async registrarPagoCliente() {
-    UI.displayHeader('REGISTRAR PAGO / ABONO DE PROYECTO');
-    try {
-
-        // 1. Obtener proyectos disponibles
-        const proyectos = await this.projectsCollection.find({}).toArray();
-        if (proyectos.length === 0) {
-            console.log(chalk.yellow('No hay proyectos registrados para realizar abonos.'));
-            await text({ message: 'Presione ENTER para continuar...' });
-            return;
-        }
-
-        const projectOptions = proyectos.map(p => ({
-            value: String(p._id),
-            label: `[${p._id}] ${p.name} - Presupuesto: $${p.budget || p.price || 0}`
-        }));
-
-        const projectIdStr = await select({
-            message: 'Seleccione el proyecto al que desea abonar:',
-            options: projectOptions
-        });
-
-        if (isCancel(projectIdStr)) return;
-
-        const proyectoSel = proyectos.find(p => String(p._id) === projectIdStr);
-        const totalBudget = parseFloat(proyectoSel.budget || proyectoSel.price || 0);
-
-        // 2. Modalidades de pago
-        const tipoPago = await select({
-            message: 'Seleccione la modalidad de abono:',
-            options: [
-                { value: '100', label: `100% - Total del presupuesto ($${totalBudget.toFixed(2)} USD)` },
-                { value: '50', label: `50% - Mitad del presupuesto ($${(totalBudget * 0.5).toFixed(2)} USD)` },
-                { value: 'custom_percent', label: 'Porcentaje personalizado (%)' },
-                { value: 'custom_amount', label: 'Monto fijo personalizado (USD)' }
-            ]
-        });
-
-        if (isCancel(tipoPago)) return;
-
-        let amountToPay = 0;
-
-        if (tipoPago === '100') {
-            amountToPay = totalBudget;
-        } else if (tipoPago === '50') {
-            amountToPay = totalBudget * 0.5;
-        } else if (tipoPago === 'custom_percent') {
-            const percentStr = await text({
-                message: 'Ingrese el porcentaje a abonar (1-100):',
-                validate(val) {
-                    const num = parseFloat(val);
-                    if (isNaN(num) || num <= 0 || num > 100) {
-                        return 'Ingrese un porcentaje valido entre 1 y 100.';
-                    }
-                }
-            });
-            if (isCancel(percentStr)) return;
-            amountToPay = (totalBudget * parseFloat(percentStr)) / 100;
-        } else if (tipoPago === 'custom_amount') {
-            const customAmountStr = await text({
-                message: 'Monto a pagar (USD):',
-                validate(val) {
-                    const num = parseFloat(val);
-                    if (isNaN(num) || num <= 0) {
-                        return 'Ingrese un monto valido mayor a 0.';
-                    }
-                }
-            });
-            if (isCancel(customAmountStr)) return;
-            amountToPay = parseFloat(customAmountStr);
-        }
-
-        console.log(chalk.cyan(`\nMonto a abonar: $${amountToPay.toFixed(2)} USD\n`));
-
-        // 3. Resolucion previa de la promesa para el ID de referencia
-        const defaultRef = await generateNextId(this.financesCollection, 'SPF');
-
-        const referenceInput = await text({
-            message: 'Ingrese el codigo de referencia (Ej: SPF-001):',
-            initialValue: defaultRef,
-            validate(val) {
-                if (!val || val.trim().length === 0) {
-                    return 'El codigo de referencia no puede estar vacio.';
-                }
-            }
-        });
-
-        if (isCancel(referenceInput)) return;
-        const refUpper = referenceInput.trim().toUpperCase();
-
-        // Validacion asincrona fuera del callback validate
-        const refExists = await this.financesCollection.findOne({ reference: refUpper });
-        if (refExists) {
-            console.log(chalk.red(`Error: La referencia '${refUpper}' ya existe en la base de datos.`));
-            await text({ message: 'Presione ENTER para continuar...' });
-            return;
-        }
-
-        // 4. Registro en la base de datos
-        const txSpinner = ora('Procesando transaccion en MongoDB...').start();
-        const session = Database.getClient().startSession();
-
+    async registrarPagoCliente() {
+        UI.displayHeader('REGISTRAR PAGO / ABONO DE PROYECTO');
         try {
-            await session.withTransaction(async () => {
-                const txId = await generateNextId(this.financesCollection, 'TX');
-                const transactionData = {
-                    _id: txId,
-                    projectId: proyectoSel._id,
-                    clientId: this.currentClient ? this.currentClient._id : null,
-                    type: 'INCOME',
-                    amount: amountToPay,
-                    reference: refUpper,
-                    concept: `Abono a proyecto ${proyectoSel.name}`,
-                    date: new Date(),
-                    createdAt: new Date(),
-                    updatedAt: new Date()
-                };
+            const proyectos = await this.projectsCollection.find({}).toArray();
+            if (proyectos.length === 0) {
+                console.log(chalk.yellow('No hay proyectos registrados para realizar abonos.'));
+                await text({ message: 'Presione ENTER para continuar...' });
+                return;
+            }
 
-                await this.financesCollection.insertOne(transactionData, { session });
+            const projectOptions = proyectos.map(p => ({
+                value: String(p._id),
+                label: `[${p._id}] ${p.name} - Presupuesto: $${p.budget || p.price || 0}`
+            }));
+
+            const projectIdStr = await select({
+                message: 'Seleccione el proyecto al que desea abonar:',
+                options: projectOptions
             });
 
-            txSpinner.succeed('Pago registrado exitosamente.');
+            if (isCancel(projectIdStr)) return;
 
-            const receiptContent = [
-                chalk.bold.cyan('COMPROBANTE DE TRANSACCION ATOMICA'),
-                '--------------------------------------------------------',
-                `- Proyecto:     ${proyectoSel.name}`,
-                `- Referencia:   ${refUpper}`,
-                `- Monto Abonado: $ ${amountToPay.toFixed(2)} USD`,
-                `- Fecha:        ${dayjs().format('YYYY-MM-DD HH:mm:ss')}`,
-                `- Estado:       ${chalk.green.bold('[REGISTRADO EN MONGODB]')}`,
-                '--------------------------------------------------------'
-            ].join('\n');
+            const proyectoSel = proyectos.find(p => String(p._id) === projectIdStr);
+            const totalBudget = parseFloat(proyectoSel.budget || proyectoSel.price || 0);
 
-            console.log(
-                boxen(receiptContent, {
-                    padding: 1,
-                    margin: { top: 1, bottom: 1 },
-                    borderStyle: 'double',
-                    borderColor: 'green'
-                })
-            );
+            const tipoPago = await select({
+                message: 'Seleccione la modalidad de abono:',
+                options: [
+                    { value: '100', label: `100% - Total del presupuesto ($${totalBudget.toFixed(2)} USD)` },
+                    { value: '50', label: `50% - Mitad del presupuesto ($${(totalBudget * 0.5).toFixed(2)} USD)` },
+                    { value: 'custom_percent', label: 'Porcentaje personalizado (%)' },
+                    { value: 'custom_amount', label: 'Monto fijo personalizado (USD)' }
+                ]
+            });
+
+            if (isCancel(tipoPago)) return;
+
+            let amountToPay = 0;
+
+            if (tipoPago === '100') {
+                amountToPay = totalBudget;
+            } else if (tipoPago === '50') {
+                amountToPay = totalBudget * 0.5;
+            } else if (tipoPago === 'custom_percent') {
+                const percentStr = await text({
+                    message: 'Ingrese el porcentaje a abonar (1-100):',
+                    validate(val) {
+                        const num = parseFloat(val);
+                        if (isNaN(num) || num <= 0 || num > 100) return 'Ingrese un porcentaje valido entre 1 y 100.';
+                    }
+                });
+                if (isCancel(percentStr)) return;
+                amountToPay = (totalBudget * parseFloat(percentStr)) / 100;
+            } else if (tipoPago === 'custom_amount') {
+                const customAmountStr = await text({
+                    message: 'Monto a pagar (USD):',
+                    validate(val) {
+                        const num = parseFloat(val);
+                        if (isNaN(num) || num <= 0) return 'Ingrese un monto valido mayor a 0.';
+                    }
+                });
+                if (isCancel(customAmountStr)) return;
+                amountToPay = parseFloat(customAmountStr);
+            }
+
+            console.log(chalk.cyan(`\nMonto a abonar: $${amountToPay.toFixed(2)} USD\n`));
+
+            const defaultRef = await generateNextId(this.financesCollection, 'SPF');
+
+            const referenceInput = await text({
+                message: 'Ingrese el codigo de referencia (Ej: SPF-001):',
+                initialValue: defaultRef,
+                validate(val) {
+                    if (!val || val.trim().length === 0) return 'El codigo de referencia no puede estar vacio.';
+                }
+            });
+
+            if (isCancel(referenceInput)) return;
+            const refUpper = referenceInput.trim().toUpperCase();
+
+            const refExists = await this.financesCollection.findOne({ reference: refUpper });
+            if (refExists) {
+                console.log(chalk.red(`Error: La referencia '${refUpper}' ya existe en la base de datos.`));
+                await text({ message: 'Presione ENTER para continuar...' });
+                return;
+            }
+
+            const txSpinner = ora('Procesando transaccion en MongoDB...').start();
+            const session = Database.getClient().startSession();
+
+            try {
+                await session.withTransaction(async () => {
+                    const txId = await generateNextId(this.financesCollection, 'TX');
+                    
+                    const transactionData = new Transaction({
+                        id: txId,
+                        projectId: proyectoSel._id,
+                        clientId: this.currentClient ? this.currentClient._id : null,
+                        type: 'ingreso',
+                        amount: amountToPay,
+                        reference: refUpper,
+                        referenceCode: refUpper,
+                        concept: `Abono a proyecto ${proyectoSel.name}`,
+                        description: `Abono a proyecto ${proyectoSel.name}`
+                    });
+
+                    await this.financesCollection.insertOne(transactionData, { session });
+                });
+
+                txSpinner.succeed('Pago registrado exitosamente.');
+
+                const receiptContent = [
+                    chalk.bold.cyan('COMPROBANTE DE TRANSACCION ATOMICA'),
+                    '--------------------------------------------------------',
+                    `- Proyecto:     ${proyectoSel.name}`,
+                    `- Referencia:   ${refUpper}`,
+                    `- Monto Abonado: $ ${amountToPay.toFixed(2)} USD`,
+                    `- Fecha:        ${dayjs().format('YYYY-MM-DD HH:mm:ss')}`,
+                    `- Estado:       ${chalk.green.bold('[REGISTRADO EN MONGODB]')}`,
+                    '--------------------------------------------------------'
+                ].join('\n');
+
+                console.log(boxen(receiptContent, { padding: 1, margin: { top: 1, bottom: 1 }, borderStyle: 'double', borderColor: 'green' }));
+
+            } catch (e) {
+                txSpinner.fail(`Error al procesar el pago: ${e.message}`);
+            } finally {
+                await session.endSession();
+            }
 
         } catch (e) {
-            txSpinner.fail(`Error al procesar el pago: ${e.message}`);
-        } finally {
-            await session.endSession();
+            console.log(chalk.red(`Error al procesar la operacion financiera: ${e.message}`));
         }
 
-    } catch (e) {
-        console.log(chalk.red(`Error al procesar la operacion financiera: ${e.message}`));
+        await text({ message: 'Presione ENTER para continuar...' });
     }
+}
 
-    await text({ message: 'Presione ENTER para continuar...' });
-}
-}
 export default ClientMenu;
