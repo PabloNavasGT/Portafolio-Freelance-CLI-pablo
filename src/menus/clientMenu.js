@@ -13,7 +13,7 @@ import figures from 'figures';
 import logSymbols from 'log-symbols';
 import ora from 'ora';
 
-import Database from '../config/db.js';
+import Database from '.././config/db.js';
 import { UI } from '../utils/ui.js';
 import Deliverable from '../models/Deliverable.js';
 import AppValidator from '../utils/validators.js';
@@ -79,7 +79,6 @@ export class ClientMenu {
                 message: 'Seleccione una opcion para continuar:',
                 options: [
                     { value: 'login', label: 'Iniciar Sesion' },
-                    { value: 'register', label: 'Registrarse como Nuevo Cliente' },
                     { value: 'exit', label: 'Volver al Menu Principal' }
                 ]
             });
@@ -113,10 +112,7 @@ export class ClientMenu {
         if (isCancel(pass)) return false;
 
         const spinner = ora('Verificando credenciales...').start();
-        const client = await this.clientsCollection.findOne({
-            email: email.trim().toLowerCase(),
-            password: pass
-        });
+        const client = await this.clientRepo.findByCredentials(email.trim().toLowerCase(), pass);
 
         if (client) {
             this.currentClient = client;
