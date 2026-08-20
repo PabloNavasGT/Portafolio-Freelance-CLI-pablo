@@ -8,11 +8,9 @@ import dayjs from 'dayjs';
 import Table from 'cli-table3';
 import ora from 'ora';
 
-// Configuración centralizada
 import Database from '../config/db.js';
 import { UI } from '../utils/ui.js';
 
-// Modelos
 import Client from '../models/Client.js';
 import Contract from '../models/Contract.js';
 import Deliverable from '../models/Deliverable.js';
@@ -20,20 +18,12 @@ import Project from '../models/Project.js';
 import Proposal from '../models/Proposal.js';
 import Transaction from '../models/Transaction.js';
 
-// Repositorios y Utilidades
 import ClientRepository from '../repositories/clientRepository.js';
 import ProjectRepository from '../repositories/projectRepository.js';
 import ProposalRepository from '../repositories/proposalRepository.js';
 import FinanceRepository from '../repositories/financeRepository.js';
 import { generateNextId } from '../utils/idGenerator.js';
 import AppValidator from '../utils/validators.js';
-
-// Services 
-
-import clientService from '../services/clientService.js';
-import financeService from '../services/financeService.js';
-import projectService from '../services/projectService.js';
-import ProposalService from '../services/proposalService.js';
 
 export class FreelanceMenu {
     constructor() {
@@ -43,7 +33,6 @@ export class FreelanceMenu {
         this.financeRepo = new FinanceRepository();
     }
 
-    // ACCESORES DE BASE DE DATOS
     get db() { return Database.getDb(); }
     get clientsCollection() { return this.db.collection('clients'); }
     get proposalsCollection() { return this.db.collection('proposals'); }
@@ -140,31 +129,12 @@ export class FreelanceMenu {
         }
     }
 
-    /**
-     * Banner de Notificaciones en FreelanceMenu
-     * Detecta aprobaciones, rechazos (con su razón) y pagos recibidos en tiempo real.
-     */
     async renderFreelanceNotificationsBanner() {
         try {
-            // 1. Propuestas aceptadas o rechazadas
-            const proposals = await this.proposalsCollection.find({
-                status: { $in: ['aceptada', 'rechazada'] }
-            }).toArray();
-
-            // 2. Entregables aprobados o rechazados
-            const deliverables = await this.deliverablesCollection.find({
-                status: { $in: ['aprobado', 'rechazado'] }
-            }).toArray();
-
-            // 3. Proyectos completados o rechazados
-            const projects = await this.projectsCollection.find({
-                status: { $in: ['completado', 'rechazado'] }
-            }).toArray();
-
-            // 4. Últimos pagos recibidos
-            const payments = await this.financesCollection.find({
-                type: { $in: ['ingreso', 'INGRESO', 'pago'] }
-            }).limit(5).toArray();
+            const proposals = await this.proposalsCollection.find({ status: { $in: ['aceptada', 'rechazada'] } }).toArray();
+            const deliverables = await this.deliverablesCollection.find({ status: { $in: ['aprobado', 'rechazado'] } }).toArray();
+            const projects = await this.projectsCollection.find({ status: { $in: ['completado', 'rechazado'] } }).toArray();
+            const payments = await this.financesCollection.find({ type: { $in: ['ingreso', 'INGRESO', 'pago'] } }).limit(5).toArray();
 
             const notifications = [];
 
@@ -200,7 +170,7 @@ export class FreelanceMenu {
                 const cardContent = [
                     chalk.bold.cyan(' 🔔 CENTRO DE NOTIFICACIONES FREELANCER '),
                     '------------------------------------------------------------',
-                    ...notifications.slice(-8) // Muestra las últimas 8 notificaciones
+                    ...notifications.slice(-8)
                 ].join('\n');
 
                 console.log(
@@ -213,11 +183,9 @@ export class FreelanceMenu {
                 );
             }
         } catch (e) {
-            
+            // Manejo silencioso de errores de renderizado
         }
     }
-
-    // SUBMODULO DE CLIENTES
 
     async clientsMenu() {
         while (true) {
@@ -290,16 +258,16 @@ export class FreelanceMenu {
 
             const newClientId = await generateNextId(this.clientsCollection, 'C');
 
-            const newClientDoc = {
-                _id: newClientId,
+            const newClient = new Client({
+                id: newClientId,
                 name: name.trim(),
                 email: email.trim().toLowerCase(),
                 password: pass,
                 phone: phone ? phone.trim() : null,
                 createdAt: new Date()
-            };
+            });
 
-            await this.clientsCollection.insertOne(newClientDoc);
+            await this.clientsCollection.insertOne(newClient);
             spinner.succeed(chalk.green(`Cliente registrado con exito con ID: ${newClientId}`));
         } catch (e) {
             spinner.fail(chalk.red(`Error al registrar cliente: ${e.message}`));
@@ -315,18 +283,10 @@ export class FreelanceMenu {
             const clients = await this.clientsCollection.find().toArray();
 
             if (!clients || clients.length === 0) {
-                console.log(
-                    boxen(chalk.yellow('[!] No hay clientes registrados.'), { padding: 1, margin: 1, borderStyle: 'round' })
-                );
+                console.log(boxen(chalk.yellow('[!] No hay clientes registrados.'), { padding: 1, margin: 1, borderStyle: 'round' }));
             } else {
                 const table = new Table({
-                    head: [
-                        chalk.cyan('ID'),
-                        chalk.cyan('Nombre'),
-                        chalk.cyan('Email'),
-                        chalk.cyan('Telefono'),
-                        chalk.cyan('Fecha Registro')
-                    ],
+                    head: [chalk.cyan('ID'), chalk.cyan('Nombre'), chalk.cyan('Email'), chalk.cyan('Telefono'), chalk.cyan('Fecha Registro')],
                     colWidths: [10, 25, 30, 15, 15]
                 });
 
@@ -460,8 +420,6 @@ export class FreelanceMenu {
         }
     }
 
-    // SUBMODULO DE PROPUESTAS
-
     async proposalsMenu() {
         while (true) {
             UI.displayHeader('> Modo Freelancer > Gestion de Propuestas');
@@ -471,7 +429,6 @@ export class FreelanceMenu {
                 options: [
                     { value: 'create', label: 'Crear Nueva Propuesta' },
                     { value: 'list', label: 'Listar Propuestas por Cliente' },
-                    { value: 'approve', label: 'Aprobar Propuesta' },
                     { value: 'back', label: 'Volver al Menu Principal' }
                 ]
             });
@@ -484,9 +441,6 @@ export class FreelanceMenu {
                     break;
                 case 'list':
                     await this.listProposalsByClient();
-                    break;
-                case 'approve':
-                    await this.approveProposal();
                     break;
             }
         }
@@ -525,109 +479,19 @@ export class FreelanceMenu {
         try {
             const newPropId = await generateNextId(this.proposalsCollection, 'P');
 
-            const newProposalDoc = {
-                _id: newPropId,
+            const newProposal = new Proposal({
+                id: newPropId,
                 clientId: clientId,
                 title: title.trim(),
                 description: description.trim(),
                 price: parseFloat(priceStr),
-                status: 'pendiente',
-                createdAt: new Date(),
-                updatedAt: new Date()
-            };
+                status: 'pendiente'
+            });
 
-            await this.proposalsCollection.insertOne(newProposalDoc);
+            await this.proposalsCollection.insertOne(newProposal);
             spinner.succeed(chalk.green(`Propuesta creada exitosamente con ID: ${newPropId}`));
         } catch (error) {
             spinner.fail(chalk.red(`[!] Error al crear propuesta: ${error.message}`));
-        }
-
-        await text({ message: 'Presione ENTER para continuar...' });
-    }
-
-    async approveProposal() {
-        UI.displayHeader('> Modo Freelancer > Propuestas > Aprobar Propuesta');
-
-        const clientId = await this.selectClientInteractive();
-        if (!clientId) return;
-
-        const proposals = await this.proposalsCollection.find({ clientId: clientId, status: 'pendiente' }).toArray();
-        if (!proposals || proposals.length === 0) {
-            console.log(chalk.yellow('[!] No hay propuestas pendientes para este cliente.'));
-            await text({ message: 'Presione ENTER para continuar...' });
-            return;
-        }
-
-        const proposalId = await select({
-            message: 'Seleccione la propuesta a aprobar:',
-            options: proposals.map(p => ({
-                value: p._id,
-                label: `[${p._id}] ${p.title} ($${p.price})`
-            }))
-        });
-        if (isCancel(proposalId)) return;
-
-        const proposal = proposals.find(p => p._id === proposalId);
-
-        const spinner = ora('Aprobando propuesta y generando contrato y proyecto...').start();
-
-        try {
-            const newContractId = await generateNextId(this.contractsCollection, 'CT');
-            const newContract = {
-                _id: newContractId,
-                title: `Contrato: ${proposal.title}`,
-                terms: `Aprobacion automatica de propuesta ${proposal._id}`,
-                clientId: clientId,
-                amount: parseFloat(proposal.price),
-                status: 'activo',
-                startDate: new Date(),
-                endDate: dayjs().add(30, 'day').toDate(),
-                createdAt: new Date(),
-                updatedAt: new Date()
-            };
-            await this.contractsCollection.insertOne(newContract);
-
-            const newProjectId = await generateNextId(this.projectsCollection, 'A');
-            const newProject = {
-                _id: newProjectId,
-                name: proposal.title,
-                description: proposal.description || '',
-                clientId: clientId,
-                contractId: newContractId,
-                status: 'activo',
-                progress: 0,
-                budget: parseFloat(proposal.price),
-                logs: [{
-                    note: `Proyecto iniciado automaticamente desde propuesta ${proposal._id}`,
-                    state: 'en progreso',
-                    percentage: 0,
-                    date: new Date()
-                }],
-                createdAt: new Date(),
-                updatedAt: new Date()
-            };
-            await this.projectsCollection.insertOne(newProject);
-
-            await this.proposalsCollection.updateOne(
-                { _id: proposal._id },
-                { $set: { status: 'aceptada', updatedAt: new Date() } }
-            );
-
-            spinner.succeed(chalk.green(`Propuesta [${proposal._id}] aprobada correctamente.`));
-
-            const cardInfo = [
-                chalk.bold.green('[✔] PROPUESTA ACEPTADA Y ASOCIADA'),
-                '--------------------------------------------------',
-                `Propuesta ID: ${proposal._id}`,
-                `Cliente ID:   ${clientId}`,
-                `Contrato ID:  ${newContractId}`,
-                `Proyecto ID:  ${newProjectId}`,
-                `Monto Total:  $${proposal.price}`
-            ].join('\n');
-
-            console.log(boxen(cardInfo, { padding: 1, margin: 1, borderStyle: 'round', borderColor: 'green' }));
-        } catch (e) {
-            spinner.fail(chalk.red(`[!] Error al aprobar propuesta: ${e.message}`));
         }
 
         await text({ message: 'Presione ENTER para continuar...' });
@@ -643,18 +507,10 @@ export class FreelanceMenu {
             const proposals = await this.proposalsCollection.find({ clientId: clientId }).toArray();
 
             if (!proposals || proposals.length === 0) {
-                console.log(
-                    boxen(chalk.yellow('[!] El cliente no tiene propuestas asociadas.'), { padding: 1, margin: 1, borderStyle: 'round' })
-                );
+                console.log(boxen(chalk.yellow('[!] El cliente no tiene propuestas asociadas.'), { padding: 1, margin: 1, borderStyle: 'round' }));
             } else {
                 const table = new Table({
-                    head: [
-                        chalk.cyan('ID'),
-                        chalk.cyan('Titulo'),
-                        chalk.cyan('Precio (USD)'),
-                        chalk.cyan('Estado'),
-                        chalk.cyan('Fecha Creacion')
-                    ],
+                    head: [chalk.cyan('ID'), chalk.cyan('Titulo'), chalk.cyan('Precio (USD)'), chalk.cyan('Estado'), chalk.cyan('Fecha Creacion')],
                     colWidths: [10, 30, 15, 18, 15]
                 });
 
@@ -676,8 +532,6 @@ export class FreelanceMenu {
 
         await text({ message: 'Presione ENTER para continuar...' });
     }
-
-    // SUBMODULO DE CONTRATOS
 
     async contractsMenu() {
         while (true) {
@@ -756,18 +610,16 @@ export class FreelanceMenu {
         try {
             const newContractId = await generateNextId(this.contractsCollection, 'CT');
 
-            const newContract = {
-                _id: newContractId,
+            const newContract = new Contract({
+                id: newContractId,
                 title: title.trim(),
                 terms: terms.trim(),
                 clientId: clientId,
                 amount: parseFloat(amountStr),
                 status: 'activo',
                 startDate: dayjs(startDateInput.trim()).toDate(),
-                endDate: dayjs(endDateInput.trim()).toDate(),
-                createdAt: new Date(),
-                updatedAt: new Date()
-            };
+                endDate: dayjs(endDateInput.trim()).toDate()
+            });
 
             await this.contractsCollection.insertOne(newContract);
             spinner.succeed(chalk.green(`Contrato registrado con exito con ID: ${newContractId}`));
@@ -785,20 +637,10 @@ export class FreelanceMenu {
             const contracts = await this.contractsCollection.find().toArray();
 
             if (!contracts || contracts.length === 0) {
-                console.log(
-                    boxen(chalk.yellow('[!] No hay contratos registrados.'), { padding: 1, margin: 1, borderStyle: 'round' })
-                );
+                console.log(boxen(chalk.yellow('[!] No hay contratos registrados.'), { padding: 1, margin: 1, borderStyle: 'round' }));
             } else {
                 const table = new Table({
-                    head: [
-                        chalk.cyan('ID'),
-                        chalk.cyan('Titulo'),
-                        chalk.cyan('Cliente ID'),
-                        chalk.cyan('Monto (USD)'),
-                        chalk.cyan('Estado'),
-                        chalk.cyan('Inicio'),
-                        chalk.cyan('Fin')
-                    ],
+                    head: [chalk.cyan('ID'), chalk.cyan('Titulo'), chalk.cyan('Cliente ID'), chalk.cyan('Monto (USD)'), chalk.cyan('Estado'), chalk.cyan('Inicio'), chalk.cyan('Fin')],
                     colWidths: [10, 25, 12, 15, 15, 15, 15]
                 });
 
@@ -905,8 +747,6 @@ export class FreelanceMenu {
         }
     }
 
-    // SUBMODULO DE PROYECTOS
-
     async projectsMenu() {
         while (true) {
             UI.displayHeader('> Modo Freelancer > Gestion de Proyectos');
@@ -967,8 +807,8 @@ export class FreelanceMenu {
         try {
             const newProjectId = await generateNextId(this.projectsCollection, 'A');
 
-            const newProject = {
-                _id: newProjectId,
+            const newProject = new Project({
+                id: newProjectId,
                 name: name.trim(),
                 description: description ? description.trim() : '',
                 clientId: clientId,
@@ -976,10 +816,8 @@ export class FreelanceMenu {
                 status: 'activo',
                 progress: 0,
                 budget: parseFloat(budgetStr),
-                logs: [],
-                createdAt: new Date(),
-                updatedAt: new Date()
-            };
+                logs: []
+            });
 
             await this.projectsCollection.insertOne(newProject);
             spinner.succeed(chalk.green(`Proyecto creado exitosamente con ID: ${newProjectId}`));
@@ -997,19 +835,10 @@ export class FreelanceMenu {
             const projects = await this.projectsCollection.find().toArray();
 
             if (!projects || projects.length === 0) {
-                console.log(
-                    boxen(chalk.yellow('[!] No hay proyectos registrados.'), { padding: 1, margin: 1, borderStyle: 'round' })
-                );
+                console.log(boxen(chalk.yellow('[!] No hay proyectos registrados.'), { padding: 1, margin: 1, borderStyle: 'round' }));
             } else {
                 const table = new Table({
-                    head: [
-                        chalk.cyan('ID'),
-                        chalk.cyan('Nombre'),
-                        chalk.cyan('Cliente ID'),
-                        chalk.cyan('Estado'),
-                        chalk.cyan('Progreso'),
-                        chalk.cyan('Presupuesto')
-                    ],
+                    head: [chalk.cyan('ID'), chalk.cyan('Nombre'), chalk.cyan('Cliente ID'), chalk.cyan('Estado'), chalk.cyan('Progreso'), chalk.cyan('Presupuesto')],
                     colWidths: [10, 25, 12, 15, 15, 15]
                 });
 
@@ -1188,71 +1017,6 @@ export class FreelanceMenu {
         }
     }
 
-    /**
-     * Registrar Avance de Proyecto para notificar al cliente y solicitar aprobación
-     */
-    async registrarAvanceProyecto() {
-        UI.displayHeader('> Modo Freelancer > Proyectos > Registrar Avance');
-
-        try {
-            const projects = await this.projectsCollection.find({ status: 'activo' }).toArray();
-            if (!projects || projects.length === 0) {
-                console.log(chalk.yellow('[!] No hay proyectos activos para registrar avances.'));
-                await text({ message: 'Presione ENTER para continuar...' });
-                return;
-            }
-
-            const projectId = await select({
-                message: 'Seleccione el proyecto para registrar avance:',
-                options: projects.map(p => ({
-                    value: p._id,
-                    label: `[${p._id}] ${p.name} (Progreso actual: ${p.progress || 0}%)`
-                }))
-            });
-            if (isCancel(projectId)) return;
-
-            const note = await text({
-                message: 'Descripción del avance realizado:',
-                validate: val => (!val || val.trim().length === 0) ? 'La descripción es requerida' : undefined
-            });
-            if (isCancel(note)) return;
-
-            const percentageStr = await text({
-                message: 'Nuevo porcentaje de avance global (0 - 100):',
-                validate: val => (isNaN(val) || parseFloat(val) < 0 || parseFloat(val) > 100) ? 'Ingrese un porcentaje válido entre 0 y 100' : undefined
-            });
-            if (isCancel(percentageStr)) return;
-
-            const spinner = ora('Guardando avance y notificando al cliente...').start();
-
-            const newLog = {
-                note: note.trim(),
-                percentage: parseFloat(percentageStr),
-                approvalStatus: 'pendiente_aprobacion', // Estado enviado para revisión del cliente
-                createdAt: new Date()
-            };
-
-            await this.projectsCollection.updateOne(
-                { _id: projectId },
-                {
-                    $set: { 
-                        progress: parseFloat(percentageStr),
-                        updatedAt: new Date()
-                    },
-                    $push: { logs: newLog }
-                }
-            );
-
-            spinner.succeed(chalk.green(`Avance registrado correctamente. Se ha notificado al cliente para su revisión y aprobación.`));
-        } catch (e) {
-            console.log(chalk.red(`Error al registrar avance: ${e.message}`));
-        }
-
-        await text({ message: 'Presione ENTER para continuar...' });
-    }
-
-    // SUBMODULO DE ENTREGABLES
-
     async deliverablesMenu() {
         while (true) {
             UI.displayHeader('> Modo Freelancer > Gestion de Entregables');
@@ -1325,20 +1089,16 @@ export class FreelanceMenu {
         try {
             const newDeliverableId = await generateNextId(this.deliverablesCollection, 'E');
 
-            const nuevoEntregable = {
-                _id: newDeliverableId,
+            const nuevoEntregable = new Deliverable({
+                id: newDeliverableId,
                 title: title.trim(),
                 projectId: projectId,
                 deadline: deadlineDate,
                 dueDate: deadlineDate,
-                status: 'pendiente',
-                createdAt: new Date(),
-                updatedAt: new Date()
-            };
+                status: 'pendiente'
+            });
 
             await this.deliverablesCollection.insertOne(nuevoEntregable);
-
-            // Sincronizar el progreso del proyecto tras agregar entregable
             await this.syncProjectProgressFromDeliverables(projectId);
 
             spinner.succeed(chalk.green(`Entregable registrado con exito con ID: ${newDeliverableId}`));
@@ -1359,17 +1119,10 @@ export class FreelanceMenu {
             const deliverables = await this.deliverablesCollection.find({ projectId: projectId }).toArray();
 
             if (!deliverables || deliverables.length === 0) {
-                console.log(
-                    boxen(chalk.yellow('[!] No hay entregables asignados a este proyecto.'), { padding: 1, margin: 1, borderStyle: 'round' })
-                );
+                console.log(boxen(chalk.yellow('[!] No hay entregables asignados a este proyecto.'), { padding: 1, margin: 1, borderStyle: 'round' }));
             } else {
                 const table = new Table({
-                    head: [
-                        chalk.cyan('ID'),
-                        chalk.cyan('Titulo'),
-                        chalk.cyan('Estado'),
-                        chalk.cyan('Fecha Limite')
-                    ],
+                    head: [chalk.cyan('ID'), chalk.cyan('Titulo'), chalk.cyan('Estado'), chalk.cyan('Fecha Limite')],
                     colWidths: [10, 35, 18, 15]
                 });
 
@@ -1420,7 +1173,6 @@ export class FreelanceMenu {
 
             const selectedDeliverable = deliverables.find(d => d._id === deliverableId);
 
-            // Mensaje de advertencia si el entregable ya estaba completado
             if (selectedDeliverable && selectedDeliverable.status === 'completado') {
                 console.log(chalk.yellow('\n[!] ADVERTENCIA: Este entregable ya se encuentra en estado COMPLETADO.\n'));
             }
@@ -1435,10 +1187,6 @@ export class FreelanceMenu {
             });
             if (isCancel(newStatus)) return;
 
-            if (selectedDeliverable && selectedDeliverable.status === 'completado' && newStatus === 'completado') {
-                console.log(chalk.yellow('[!] El entregable ya estaba marcado como completado previamente.'));
-            }
-
             const spinner = ora('Actualizando entregable y sincronizando progreso del proyecto...').start();
 
             await this.deliverablesCollection.updateOne(
@@ -1447,8 +1195,6 @@ export class FreelanceMenu {
             );
 
             spinner.succeed(chalk.green(`Estado de entregable actualizado a: ${newStatus}`));
-
-            // Sincronizar automáticamente el progreso del proyecto y mostrar barra dinámicamente
             await this.syncProjectProgressFromDeliverables(projectId);
 
         } catch (e) {
@@ -1457,8 +1203,6 @@ export class FreelanceMenu {
 
         await text({ message: 'Presione ENTER para continuar...' });
     }
-
-    // SUBMODULO FINANCIERO
 
     async financesMenu() {
         while (true) {
@@ -1470,7 +1214,6 @@ export class FreelanceMenu {
                     { value: 'addTransaction', label: 'Registrar Transaccion (Ingreso / Egreso)' },
                     { value: 'list', label: 'Ver Movimientos Financieros' },
                     { value: 'clientBalance', label: 'Balance Neto por Cliente' },
-                    { value: 'rangeBalance', label: 'Balance Financiero por Rango de Fechas' },
                     { value: 'back', label: 'Volver al Menu Principal' }
                 ]
             });
@@ -1486,9 +1229,6 @@ export class FreelanceMenu {
                     break;
                 case 'clientBalance':
                     await this.showFinancialBalance();
-                    break;
-                case 'rangeBalance':
-                    await this.showFinancialRangeBalance();
                     break;
             }
         }
@@ -1541,17 +1281,16 @@ export class FreelanceMenu {
         try {
             const autoRefId = await generateNextId(this.financesCollection, 'SPF');
 
-            const newTransaction = {
-                _id: autoRefId,
+            const newTransaction = new Transaction({
+                id: autoRefId,
                 projectId: projectId,
                 clientId: project.clientId || null,
                 type: type,
                 concept: concept.trim(),
                 description: description ? description.trim() : concept.trim(),
                 amount: amount,
-                referenceCode: autoRefId,
-                createdAt: new Date()
-            };
+                referenceCode: autoRefId
+            });
 
             await this.financesCollection.insertOne(newTransaction);
 
@@ -1584,19 +1323,10 @@ export class FreelanceMenu {
             const transactions = await this.financesCollection.find().toArray();
 
             if (!transactions || transactions.length === 0) {
-                console.log(
-                    boxen(chalk.yellow('[!] No hay movimientos financieros registrados.'), { padding: 1, margin: 1, borderStyle: 'round' })
-                );
+                console.log(boxen(chalk.yellow('[!] No hay movimientos financieros registrados.'), { padding: 1, margin: 1, borderStyle: 'round' }));
             } else {
                 const table = new Table({
-                    head: [
-                        chalk.cyan('Referencia'),
-                        chalk.cyan('Tipo'),
-                        chalk.cyan('Proyecto ID'),
-                        chalk.cyan('Monto (USD)'),
-                        chalk.cyan('Concepto'),
-                        chalk.cyan('Fecha')
-                    ],
+                    head: [chalk.cyan('Referencia'), chalk.cyan('Tipo'), chalk.cyan('Proyecto ID'), chalk.cyan('Monto (USD)'), chalk.cyan('Concepto'), chalk.cyan('Fecha')],
                     colWidths: [15, 12, 12, 15, 25, 18]
                 });
 
@@ -1607,7 +1337,7 @@ export class FreelanceMenu {
                         : chalk.green(`+$${Number(t.amount || 0).toFixed(2)}`);
 
                     table.push([
-                        t.referenceCode || t._id || 'N/A',
+                        t.referenceCode || t.reference || t._id || 'N/A',
                         this.getBadge('finances', t.type),
                         t.projectId || 'N/A',
                         amountFormatted,
@@ -1634,143 +1364,43 @@ export class FreelanceMenu {
         const spinner = ora('Calculando balance neto del cliente...').start();
 
         try {
-            const projects = await this.projectsCollection.find({ clientId: clientId }).toArray();
+            const projects = await this.projectsCollection.find({ clientId }).toArray();
             const projectIds = projects.map(p => p._id);
 
-            const query = projectIds.length > 0
-                ? { $or: [{ clientId: clientId }, { projectId: { $in: projectIds } }] }
-                : { clientId: clientId };
-
-            const transactions = await this.financesCollection.find(query).toArray();
-
-            let totalIncome = 0;
-            let totalExpense = 0;
-
-            transactions.forEach(t => {
-                const amount = Number(t.amount) || 0;
-                if (t.type === 'ingreso') totalIncome += amount;
-                if (t.type === 'egreso') totalExpense += amount;
-            });
-
-            const netBalance = totalIncome - totalExpense;
-            spinner.stop();
-
-            const formattedIncome = chalk.green(`+$${totalIncome.toFixed(2)} USD`);
-            const formattedExpense = chalk.red(`-$${totalExpense.toFixed(2)} USD`);
-            const formattedBalance = netBalance >= 0
-                ? chalk.bold.green(`+$${netBalance.toFixed(2)} USD`)
-                : chalk.bold.red(`-$${Math.abs(netBalance).toFixed(2)} USD`);
-
-            const cardContent = [
-                chalk.bold.cyan('BALANCE NETO CALCULADO DESDE BASE DE DATOS'),
-                '--------------------------------------------------',
-                `Cliente ID:       ${clientId}`,
-                `Transacciones:    ${transactions.length} encontradas`,
-                '--------------------------------------------------',
-                `Total Ingresos:   ${formattedIncome}`,
-                `Total Egresos:    ${formattedExpense}`,
-                '--------------------------------------------------',
-                `Balance Neto:     ${formattedBalance}`
-            ].join('\n');
-
-            console.log(
-                boxen(cardContent, {
-                    padding: 1,
-                    margin: { top: 1, bottom: 1 },
-                    borderStyle: 'double',
-                    borderColor: 'cyan'
-                })
-            );
-        } catch (e) {
-            spinner.fail(chalk.red(`Error al calcular balance: ${e.message}`));
-        }
-
-        await text({ message: 'Presione ENTER para continuar...' });
-    }
-
-    async showFinancialRangeBalance() {
-        UI.displayHeader('> Modo Freelancer > Finanzas > Balance por Periodo');
-
-        const period = await select({
-            message: 'Seleccione el rango temporal:',
-            options: [
-                { value: 'week', label: 'Esta Semana' },
-                { value: 'month', label: 'Este Mes' },
-                { value: 'quarter', label: 'Este Trimestre (Cuarto)' },
-                { value: 'year', label: 'Este Año' }
-            ]
-        });
-        if (isCancel(period)) return;
-
-        const now = dayjs();
-        let startDate, endDate;
-
-        switch (period) {
-            case 'week':
-                startDate = now.startOf('week').toDate();
-                endDate = now.endOf('week').toDate();
-                break;
-            case 'month':
-                startDate = now.startOf('month').toDate();
-                endDate = now.endOf('month').toDate();
-                break;
-            case 'quarter':
-                startDate = now.startOf('quarter').toDate();
-                endDate = now.endOf('quarter').toDate();
-                break;
-            case 'year':
-                startDate = now.startOf('year').toDate();
-                endDate = now.endOf('year').toDate();
-                break;
-        }
-
-        const spinner = ora('Consultando movimientos en el periodo...').start();
-
-        try {
             const transactions = await this.financesCollection.find({
-                createdAt: { $gte: startDate, $lte: endDate }
+                $or: [
+                    { clientId: clientId },
+                    { projectId: { $in: projectIds } }
+                ]
             }).toArray();
 
-            let totalIncome = 0;
-            let totalExpense = 0;
+            let totalIngresos = 0;
+            let totalEgresos = 0;
 
             transactions.forEach(t => {
                 const amount = Number(t.amount) || 0;
-                if (t.type === 'ingreso') totalIncome += amount;
-                if (t.type === 'egreso') totalExpense += amount;
+                if (t.type === 'ingreso' || t.type === 'INCOME') {
+                    totalIngresos += amount;
+                } else if (t.type === 'egreso') {
+                    totalEgresos += amount;
+                }
             });
 
-            const netBalance = totalIncome - totalExpense;
+            const netBalance = totalIngresos - totalEgresos;
             spinner.stop();
 
-            const formattedIncome = chalk.green(`+$${totalIncome.toFixed(2)} USD`);
-            const formattedExpense = chalk.red(`-$${totalExpense.toFixed(2)} USD`);
-            const formattedBalance = netBalance >= 0
-                ? chalk.bold.green(`+$${netBalance.toFixed(2)} USD`)
-                : chalk.bold.red(`-$${Math.abs(netBalance).toFixed(2)} USD`);
-
-            const cardContent = [
-                chalk.bold.cyan('BALANCE FINANCIERO POR PERIODO'),
+            const balanceContent = [
+                chalk.bold.cyan(`BALANCE FINANCIERO - CLIENTE [${clientId}]`),
                 '--------------------------------------------------',
-                `Rango:            ${dayjs(startDate).format('YYYY-MM-DD')} al ${dayjs(endDate).format('YYYY-MM-DD')}`,
-                `Transacciones:    ${transactions.length} registradas`,
+                `Total Ingresos:  ${chalk.green(`+$${totalIngresos.toFixed(2)} USD`)}`,
+                `Total Egresos:   ${chalk.red(`-$${totalEgresos.toFixed(2)} USD`)}`,
                 '--------------------------------------------------',
-                `Total Ingresos:   ${formattedIncome}`,
-                `Total Egresos:    ${formattedExpense}`,
-                '--------------------------------------------------',
-                `Balance Neto:     ${formattedBalance}`
+                `Balance Neto:    ${netBalance >= 0 ? chalk.bold.green(`$${netBalance.toFixed(2)} USD`) : chalk.bold.red(`-$${Math.abs(netBalance).toFixed(2)} USD`)}`
             ].join('\n');
 
-            console.log(
-                boxen(cardContent, {
-                    padding: 1,
-                    margin: { top: 1, bottom: 1 },
-                    borderStyle: 'double',
-                    borderColor: 'cyan'
-                })
-            );
+            console.log(boxen(balanceContent, { padding: 1, margin: 1, borderStyle: 'double', borderColor: 'cyan' }));
         } catch (e) {
-            spinner.fail(chalk.red(`[!] Error al calcular rango financiero: ${e.message}`));
+            spinner.fail(chalk.red(`Error al calcular el balance: ${e.message}`));
         }
 
         await text({ message: 'Presione ENTER para continuar...' });
